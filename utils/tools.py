@@ -1,10 +1,12 @@
 import numpy as np
 from scipy.spatial.distance import cdist
 import json
-from typing import Callable, Type
+from typing import Callable, Type, Dict, Any
 from pydantic import BaseModel, Field
 from datetime import datetime
+from datetime import date, datetime
 
+from utils.db_tools import run_query
 
 # =========================================
 # Tool Registry
@@ -112,6 +114,42 @@ def get_current_time():
     # 返回格式化后的当前时间
     return {"time": formatted_time}
 
+# =========================================
+# SELECT TOOLS
+# =========================================
+
+def json_serializer(obj):
+    if isinstance(obj, (date, datetime)):
+        return obj.isoformat()
+    raise TypeError(f"Type {type(obj)} not serializable")
+
+
+class QueryPlanParam(BaseModel):
+    question: str
+
+@tool(QueryPlanParam)
+def select_tool(question: QueryPlanParam):
+    """
+    这是一个数据库查询工具，接受一个需要用到数据库的问题，返回查询结果。
+
+    Args:
+        query_plan (QueryPlanParam): 查询计划，包含问题和数据库模式
+
+    Returns:
+        dict: 查询结果
+
+    """
+    result = run_query(question)
+
+    print("\n============== RESULT ==============\n")
+
+    return json.dumps(
+            result,
+            ensure_ascii=False,
+            indent=2,
+            default=json_serializer
+        )
+    
 # =========================================
 # 自动生成 OpenAI Tool Schema
 # =========================================
