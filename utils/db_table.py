@@ -2,22 +2,23 @@
 Author: Wang Jixiang
 Date: 2026-05-12 18:00:52
 LastEditors: Wang Jixiang
-LastEditTime: 2026-05-14 18:03:39
+LastEditTime: 2026-05-15 09:02:40
 Description: 
 '''
 DATABASE_SCHEMA = {
     "tb_college": {
-        "description": "学院信息表",
+        "description": "学院信息表，查询学院的基本信息以及学院排名非常有用",
 
         "fields": {
             "col_id": "学院ID",
             "col_name": "学院名称",
-            "col_intro": "学院简介"
+            "col_intro": "学院简介",
+            "col_order": "学院排名"
         }
     },
 
     "tb_student": {
-        "description": "学生信息表",
+        "description": "学生信息表，查询学生的基本信息非常有用",
 
         "fields": {
             "stu_id": "学生ID",
@@ -30,7 +31,7 @@ DATABASE_SCHEMA = {
     },
 
     "tb_teacher": {
-        "description": "教师信息表",
+        "description": "教师信息表，查询教师的基本信息以及授课情况非常有用",
 
         "fields": {
             "tea_id": "教师ID",
@@ -41,7 +42,7 @@ DATABASE_SCHEMA = {
     },
 
     "tb_course": {
-        "description": "课程信息表",
+        "description": "课程信息表，查询课程的基本信息以及授课情况非常有用",
 
         "fields": {
             "cou_id": "课程ID",
@@ -52,7 +53,7 @@ DATABASE_SCHEMA = {
     },
 
     "tb_record": {
-        "description": "选课记录表",
+        "description": "选课记录表，查询学生的选课记录以及成绩非常有用",
 
         "fields": {
             "rec_id": "记录ID",

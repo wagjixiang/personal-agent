@@ -65,22 +65,17 @@ class PointParam(BaseModel):
     )
 
 @tool(PointParam)
-def find_point(target_point: PointParam):
+def find_point(target_point: list[float], top_k: int = 1):
     """
     查找距离目标点最近的数据点
-
-    Args:
-        target_point (PointParam): 目标点坐标 [x, y]
-
-    Returns:
-        dict: 最近点的坐标
     """
-    # 读取num_data.json文件
+
     with open('num_data.json', 'r', encoding='utf-8') as f:
         num_data = json.load(f)
 
     # 将数据转换为numpy数组
     data_points = np.array(num_data)
+
     target = np.array([target_point])
 
     # 计算所有点到目标点的距离
@@ -88,6 +83,7 @@ def find_point(target_point: PointParam):
 
     # 找到最近点的索引
     nearest_idx = np.argmin(distances)
+
     nearest_point = data_points[nearest_idx]
 
     return {
@@ -128,16 +124,32 @@ class QueryPlanParam(BaseModel):
     question: str
 
 @tool(QueryPlanParam)
-def select_tool(question: QueryPlanParam):
+def select_tool(question: str):
     """
-    这是一个数据库查询工具，接受一个需要用到数据库的问题，返回查询结果。
+    【必须优先使用的数据库查询工具】
 
-    Args:
-        query_plan (QueryPlanParam): 查询计划，包含问题和数据库模式
+    当用户的问题涉及以下内容时，
+    必须先调用该工具，而不能直接猜测回答：
 
-    Returns:
-        dict: 查询结果
+    - 订单
+    - 用户
+    - 销售额
+    - 库存
+    - 财务数据
+    - 统计数据
+    - 数据表内容
+    - 某个ID的信息
+    - 最近数据
+    - 数量统计
+    - 数据分析
 
+    禁止在未查询数据库的情况下编造答案。
+
+    输入:
+    用户原始问题
+
+    返回:
+    数据库真实查询结果
     """
     result = run_query(question)
 
@@ -173,17 +185,6 @@ def generate_openai_tools():
 
     return tools
 
-# =========================================
-# 模拟 LLM 返回 Tool Call
-# =========================================
-
-llm_response = {
-    "tool_name": "find_point",
-    "arguments": {
-        "target_point": [10, 20],
-        "top_k": 3
-    }
-}
 
 # =========================================
 # Tool Runtime
@@ -191,41 +192,35 @@ llm_response = {
 
 def execute_tool(tool_name: str, arguments: dict):
 
-    # 找到 tool
     tool_info = TOOL_REGISTRY[tool_name]
 
-    # 获取参数模型
     params_model = tool_info["params_model"]
 
-    # Pydantic 自动校验参数
-    params = params_model(**arguments)
-
-    # 获取函数
     func = tool_info["func"]
 
-    # 执行函数
-    result = func(params)
+    # 参数校验
+    if params_model:
+        validated_params = params_model(**arguments)
 
-    return result
+        # 转回 dict
+        arguments = validated_params.model_dump()
 
-# =========================================
-# 测试
-# =========================================
 
-if __name__ == "__main__":
 
-    print("\n================ Tool Schema ================\n")
+    # kwargs 执行
+    try:
+        result = func(**arguments)
 
-    tools = generate_openai_tools()
+        print(f"""Tool Name: {tool_name}, Arguments: {arguments}, Result: {result}""")
 
-    print(json.dumps(tools, ensure_ascii=False, indent=2))
+        return {
+            "success": True,
+            "result": result
+        }
 
-    print("\n================ Execute Tool ================\n")
+    except Exception as e:
 
-    result = execute_tool(
-        llm_response["tool_name"],
-        llm_response["arguments"]
-    )
-
-    print("\n执行结果:")
-    print(result)
+        return {
+            "success": False,
+            "error": str(e)
+        }

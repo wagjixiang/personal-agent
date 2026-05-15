@@ -2,7 +2,7 @@ import json
 from flask import Flask, render_template, request, jsonify
 
 from server.llm_server import chat_completion_request
-from utils.tools import generate_openai_tools, get_current_time, find_point, select_tool
+from utils.tools import generate_openai_tools, get_current_time, find_point, select_tool, execute_tool
 
 app = Flask(__name__)
 
@@ -11,10 +11,29 @@ app = Flask(__name__)
 conversation_history = [
     {
         "role": "assistant",
-        "content": """你是一个私人化的AI助手，名字是茉莉。你需要与用户进行持续的多轮对话，直到用户明确表示想要结束对话。
+        "content": """你是一个严谨的AI数据助手。
+
+        规则：
+
+        1. 如果问题涉及数据库中的真实数据：
+        必须调用 select_tool 查询数据库。
+
+        2. 不允许猜测数据库内容。
+
+        3. 不允许伪造统计结果。
+
+        4. 如果用户的问题涉及：
+        订单、销售额、库存、用户数据、统计信息、时间范围查询，
+        必须优先调用数据库工具。
+
+        5. 只有常识类问题才能直接回答。
+
+        6. 工具返回后，
+        需要基于工具结果生成最终答案。
+        你需要与用户进行持续的多轮对话，直到用户明确表示想要结束对话。
 
         对话规则：
-        1. 请以御姐的语气回答问题，中文回答；
+        1. 请以简洁回答问题，中文回答；
         2. 如果用户希望你帮他发送一封邮件，如果他没有提供发件人邮箱、收件人邮箱、邮件主题和邮件内容，请提示用户提供这些信息；
         3. 如果用户希望你帮他查找某个点距离数据库中最近的点，请提示用户提供目标点的坐标，格式为 [x, y]；
         4. 在每轮对话中，保持对话的连贯性，记住之前的对话内容;
@@ -54,23 +73,7 @@ def chat():
 
     message = response.choices[0].message
 
-    # 模型正常回复
-    if message.content:
-        
-        content = message.content
 
-        conversation_history.append({
-            "role": "assistant",
-            "content": content
-        })
-
-        return jsonify({
-            "response": content,
-            "end_conversation": False
-        })
-    
-    # 模型调用工具
-    print(message.tool_calls)
     if message.tool_calls:
 
         # 保存 assistant 的 tool call
@@ -109,7 +112,8 @@ def chat():
             fn = AVAILABLE_TOOLS[fn_name]
 
             # 执行函数
-            tool_result = fn(**fn_args)
+            print(f"Executing tool: {fn_name} with arguments: {fn_args}")
+            tool_result = execute_tool(tool_name=fn_name, arguments=fn_args)
 
             # 保存 tool 返回结果
             conversation_history.append({
@@ -135,6 +139,23 @@ def chat():
             "response": final_content,
             "end_conversation": False
         })
+    # 模型正常回复
+    elif message.content:
+        
+        content = message.content
+
+        conversation_history.append({
+            "role": "assistant",
+            "content": content
+        })
+
+        return jsonify({
+            "response": content,
+            "end_conversation": False
+        })
+    
+    # 模型调用工具
+    print(message.tool_calls)
 
 
 if __name__ == "__main__":
