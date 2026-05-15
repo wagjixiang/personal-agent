@@ -5,40 +5,19 @@ from typing import Optional, Dict, Any, Callable, Type, List, Literal, Tuple
 from dotenv import load_dotenv
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import create_engine, text
-import urllib.parse
-import pyodbc
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
 from utils.db_table import DATABASE_SCHEMA
 from server.llm_server import get_answer
 
-
 # =========================================================
-# Tool Registry
+# Schema Layer
 # =========================================================
 
-TOOL_REGISTRY = {}
+SCHEMA = DATABASE_SCHEMA
 
-
-def tool(params_model: Optional[Type[BaseModel]] = None):
-
-    def decorator(func: Callable):
-
-        TOOL_REGISTRY[func.__name__] = {
-            "name": func.__name__,
-            "description": func.__doc__.strip() if func.__doc__ else "",
-            "schema": params_model.model_json_schema() if params_model else {
-                "type": "object",
-                "properties": {}
-            },
-            "params_model": params_model,
-            "func": func
-        }
-
-        return func
-
-    return decorator
+# 保持本模块为数据库适配层：不在此处注册工具到工具中心
 
 
 # =========================================================
@@ -90,6 +69,12 @@ class DBService:
         if not sql_lower.startswith("select"):
             raise ValueError("只允许 SELECT")
 
+        if ";" in sql_lower:
+            raise ValueError("禁止多语句 SQL")
+    
+        if " limit " not in f" {sql_lower} ":
+            sql += " LIMIT 100"
+
         forbidden = [
             "insert",
             "update",
@@ -120,14 +105,6 @@ class DBService:
 
         except SQLAlchemyError as e:
             raise RuntimeError(f"数据库执行失败: {e}")
-
-
-# =========================================================
-# Schema Layer
-# =========================================================
-
-SCHEMA = DATABASE_SCHEMA
-
 
 # =========================================================
 # Query Plan Models
@@ -167,21 +144,28 @@ class QueryPlan(BaseModel):
 
 class QueryPlanParam(BaseModel):
     question: str
-    schema: Dict[str, Any]
+    db_schema: Dict[str, Any]
+
+
+class QueryTask(BaseModel):
+    name: str
+    plan: QueryPlan
+
+
+class QueryTaskList(BaseModel):
+    tasks: List[QueryTask]
 
 
 # =========================================================
 # Build Query Plan
 # =========================================================
-
-@tool(QueryPlanParam)
-def build_query_plan(params: QueryPlanParam) -> QueryPlan:
+def build_query_tasks(question: str, schema: Dict[str, Any]) -> QueryTaskList:
     """
-    根据用户问题生成结构化查询计划
+    将用户问题拆解为多个查询任务
     """
 
     schema_json = json.dumps(
-        params.schema,
+        schema,
         ensure_ascii=False,
         indent=2
     )
@@ -190,62 +174,185 @@ def build_query_plan(params: QueryPlanParam) -> QueryPlan:
             你是企业级 SQL 查询规划助手。
 
             你的任务：
-            根据用户问题和数据库 schema，
-            生成结构化查询计划。
+
+            根据：
+
+            1. 用户问题
+            2. 数据库 schema
+
+            生成：
+
+            结构化查询任务列表。
+
+            ======================================================
 
             重要规则：
 
             1. 只能使用 schema 中存在的表和字段
+
             2. 禁止虚构字段
+
             3. 返回必须是 JSON
-            4. 不要返回 markdown
-            5. 不要返回解释
-            6. aggregation.type 只能是:
+
+            4. 不允许 markdown
+
+            5. 不允许解释
+
+            6. aggregation.type 只能是：
+
             - sum
             - count
             - avg
             - none
 
-            7. filters.op 只能是:
+            7. filters.op 只能是：
+
             - eq
             - between
             - last_n_days
 
+            ======================================================
+
+            如果用户问题包含：
+
+            - 多个统计对象
+            - 多个实体
+            - 多个查询需求
+
+            必须拆分为多个 tasks。
+
+            ======================================================
+
             返回格式：
 
             {{
-                "table": "表名",
-                "select": ["字段"],
-                "filters": [
+                "tasks": [
                     {{
-                        "field": "字段名",
-                        "op": "操作符",
-                        "value": "值"
+                        "name": "任务名称",
+
+                        "plan": {{
+
+                            "table": "表名",
+
+                            "select": [
+                                "字段"
+                            ],
+
+                            "filters": [
+                                {{
+                                    "field": "字段名",
+                                    "op": "操作符",
+                                    "value": "值"
+                                }}
+                            ],
+
+                            "aggregation": {{
+                                "type": "聚合类型",
+                                "field": "字段名"
+                            }}
+                        }}
                     }}
-                ],
-                "aggregation": {{
-                    "type": "聚合类型",
-                    "field": "字段名"
-                }}
+                ]
             }}
+
+            ======================================================
 
             数据库 schema:
 
             {schema_json}
 
+            ======================================================
+
             用户问题:
 
-            {params.question}
-    """
+            {question}
+
+            ======================================================
+
+            示例：
+
+            用户：
+            “请帮我查询老师和学生各有多少人”
+
+            返回：
+
+            {{
+            "tasks": [
+                {{
+                "name": "查询教师人数",
+
+                "plan": {{
+                    "table": "teacher",
+                    "select": [],
+                    "filters": [],
+                    "aggregation": {{
+                    "type": "count",
+                    "field": null
+                    }}
+                }}
+                }},
+                {{
+                "name": "查询学生人数",
+
+                "plan": {{
+                    "table": "student",
+                    "select": [],
+                    "filters": [],
+                    "aggregation": {{
+                    "type": "count",
+                    "field": null
+                    }}
+                }}
+                }}
+            ]
+            }}
+
+            ======================================================
+
+            现在开始返回 JSON：
+            """
 
     result = get_answer(prompt)
 
-    # 如果 get_answer 返回字符串
+    print("\n================ RAW TASKS ================\n")
+    print(result)
+
+    # =====================================================
+    # String -> Dict
+    # =====================================================
+
     if isinstance(result, str):
-        result = json.loads(result)
 
-    return QueryPlan.model_validate(result)
+        result = (
+            result
+            .replace("```json", "")
+            .replace("```", "")
+            .strip()
+        )
 
+        try:
+            result = json.loads(result)
+
+        except Exception:
+
+            repair_prompt = f"""
+                修复以下 JSON:
+
+                {result}
+
+                只返回合法 JSON
+                """
+
+            repaired = get_answer(repair_prompt)
+
+            result = json.loads(repaired)
+
+    tasks = QueryTaskList.model_validate(result)
+
+    print("\n================ TASKS ================\n")
+    print(tasks.model_dump())
+
+    return tasks
 
 # =========================================================
 # Plan Validator
@@ -276,16 +383,22 @@ def validate_plan(plan: QueryPlan):
     # 检查 aggregation
     agg = plan.aggregation
 
-    if agg.type != "none":
+    if agg.type in ["sum", "avg"]:
 
         if not agg.field:
-            raise ValueError("aggregation.field 不能为空")
+            raise ValueError(
+                "sum/avg 必须指定 field"
+            )
 
         if agg.field not in table_fields:
             raise ValueError(
                 f"非法 aggregation 字段: {agg.field}"
             )
-
+        
+    if agg.type == "none" and not plan.select:
+        raise ValueError(
+            "非聚合查询 select 不能为空"
+        )
 
 # =========================================================
 # SQL Builder
@@ -371,7 +484,8 @@ def build_sql(
 
             conditions.append(
                 f"{f.field} >= "
-                f"DATEADD(day, -:{param_key}, GETDATE())"
+                f"DATE_SUB(NOW(), "
+                f"INTERVAL :{param_key} DAY)"
             )
 
             params[param_key] = int(f.value)
@@ -389,56 +503,93 @@ def build_sql(
         )
 
     sql = f"""
-SELECT {select_clause}
-FROM {table}
-{where_clause}
-"""
+        SELECT {select_clause}
+        FROM {table}
+        {where_clause}
+        """
 
     return sql.strip(), params
 
 
 # =========================================================
-# Query Runner
+# Run Query Tasks
 # =========================================================
 
 def run_query(question: str):
 
     # =====================================================
-    # 1. Build Query Plan
+    # 1. Build Tasks
     # =====================================================
 
-    plan = build_query_plan(
-        QueryPlanParam(
-            question=question,
-            schema=SCHEMA
-        )
+    tasks = build_query_tasks(
+        question=question,
+        schema=SCHEMA
     )
 
     # =====================================================
-    # 2. Validate Plan
+    # 2. Execute Tasks
     # =====================================================
 
-    validate_plan(plan)
+    results = []
 
-    # =====================================================
-    # 3. Build SQL
-    # =====================================================
+    for task in tasks.tasks:
+        try:
 
-    sql, params = build_sql(plan)
+            print(
+                f"\n================ TASK: {task.name} ================\n"
+            )
 
-    print("\n================ SQL ================\n")
-    print(sql)
+            plan = task.plan
 
-    print("\n============== PARAMS ==============\n")
-    print(params)
+            # -------------------------------------------------
+            # Validate
+            # -------------------------------------------------
 
-    # =====================================================
-    # 4. Execute SQL
-    # =====================================================
+            validate_plan(plan)
 
-    result = DBService.execute_select(
-        sql,
-        params
-    )
+            # -------------------------------------------------
+            # Build SQL
+            # -------------------------------------------------
 
-    return result
+            sql, params = build_sql(plan)
+
+            print("\n================ SQL ================\n")
+            print(sql)
+
+            print("\n================ PARAMS ================\n")
+            print(params)
+
+            # -------------------------------------------------
+            # Execute SQL
+            # -------------------------------------------------
+
+            query_result = DBService.execute_select(
+                sql,
+                params
+            )
+
+            print("\n================ RESULT ================\n")
+            print(query_result)
+
+            # -------------------------------------------------
+            # Save Result
+            # -------------------------------------------------
+
+            results.append({
+                "task_name": task.name,
+                "query_plan": plan.model_dump(),
+                "sql": sql,
+                "params": params,
+                "data": query_result
+            })
+        except Exception as e:
+            results.append({
+                "task_name": task.name,
+                "success": False,
+                "error": str(e)
+            })
+
+    return {
+        "success": True,
+        "tasks": results
+    }

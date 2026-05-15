@@ -2,7 +2,7 @@ import json
 from flask import Flask, render_template, request, jsonify
 
 from server.llm_server import chat_completion_request
-from utils.tools import generate_openai_tools, get_current_time, find_point, select_tool, execute_tool
+from utils.tools import generate_openai_tools, execute_tool
 
 app = Flask(__name__)
 
@@ -60,7 +60,7 @@ def chat():
     # 检查用户是否想要结束对话
     if user_message.lower() in ['再见', '拜拜', '结束对话', 'exit', 'quit', '我要走了', '对话到此为止']:
         return jsonify({
-            'response': '哼~我也不是很想和你聊天，再见！',
+            'response': '再见！',
             'end_conversation': True
         })
 
@@ -73,7 +73,8 @@ def chat():
 
     message = response.choices[0].message
 
-
+    # 模型调用工具
+    print(generate_openai_tools(), message.tool_calls)
     if message.tool_calls:
 
         # 保存 assistant 的 tool call
@@ -92,13 +93,6 @@ def chat():
             ] # type: ignore
         })
 
-        # 工具映射表
-        AVAILABLE_TOOLS = {
-            "get_current_time": get_current_time,
-            "find_point": find_point,
-            "select_tool": select_tool
-        }
-
         # 执行所有工具
         for call in message.tool_calls:
 
@@ -107,9 +101,6 @@ def chat():
             fn_args = json.loads(
                 call.function.arguments
             )
-
-            # 获取函数
-            fn = AVAILABLE_TOOLS[fn_name]
 
             # 执行函数
             print(f"Executing tool: {fn_name} with arguments: {fn_args}")
@@ -153,10 +144,6 @@ def chat():
             "response": content,
             "end_conversation": False
         })
-    
-    # 模型调用工具
-    print(message.tool_calls)
-
 
 if __name__ == "__main__":
     app.run(debug=True)
