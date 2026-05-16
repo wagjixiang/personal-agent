@@ -1,6 +1,6 @@
 import os
 import json
-from typing import Optional, Dict, Any, List, Literal, Tuple
+from typing import Optional, Dict, Any, List, Literal, Tuple, Set
 
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
@@ -8,7 +8,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
-from utils.db_table import DATABASE_SCHEMA
+from utils.db_table import DATABASE_SCHEMA, RELATIONS
 from server.llm_server import get_answer
 
 # =========================================================
@@ -107,64 +107,151 @@ AggType = Literal[
     "none"
 ]
 
+JoinType = Literal[
+    "inner",
+    "left",
+    "right"
+]
+
 
 class Filter(BaseModel):
+
     field: str
     op: FieldOp
     value: Any
 
 
 class Aggregation(BaseModel):
+
     type: AggType
     field: Optional[str] = None
     distinct: bool = False
 
 
 class OrderBy(BaseModel):
+
     field: str
     direction: Literal["asc", "desc"]
 
 
-class QueryPlan(BaseModel):
+class JoinCondition(BaseModel):
+
+    left_field: str
+    right_field: str
+
+
+class Join(BaseModel):
 
     table: str
 
+    join_type: JoinType = "inner"
+
+    on: JoinCondition
+
+
+class QueryPlan(BaseModel):
+
+    # 主表
+    main_table: str
+
+    # JOIN
+    joins: List[Join] = []
+
+    # 查询字段
     select: List[str] = []
 
+    # 条件
     filters: List[Filter] = []
 
+    # 聚合
     aggregation: Aggregation
 
+    # 分组
     group_by: List[str] = []
 
+    # 排序
     order_by: List[OrderBy] = []
 
+    # 限制
     limit: int = Field(default=100, le=MAX_LIMIT)
 
 
 class QueryTask(BaseModel):
+
     name: str
+
     plan: QueryPlan
 
 
 class QueryTaskList(BaseModel):
+
     tasks: List[QueryTask]
+
+
+# =========================================================
+# Utils
+# =========================================================
+
+def build_relation_text() -> str:
+
+    lines = []
+
+    for r in RELATIONS:
+
+        lines.append(
+            f"{r['left_table']}.{r['left_field']} "
+            f"= "
+            f"{r['right_table']}.{r['right_field']}"
+        )
+
+    return "\n".join(lines)
+
+
+def get_allowed_tables(plan: QueryPlan) -> Set[str]:
+
+    tables = {
+        plan.main_table
+    }
+
+    for join in plan.joins:
+        tables.add(join.table)
+
+    return tables
+
+
+def get_allowed_fields(plan: QueryPlan) -> Set[str]:
+
+    allowed_tables = get_allowed_tables(plan)
+
+    fields = set()
+
+    for table in allowed_tables:
+
+        if table not in SCHEMA:
+            continue
+
+        for field in SCHEMA[table]["fields"]:
+
+            fields.add(
+                f"{table}.{field}"
+            )
+
+    return fields
 
 
 # =========================================================
 # Build Query Tasks
 # =========================================================
 
-def build_query_tasks(
-    question: str,
-    schema: Dict[str, Any]
-) -> QueryTaskList:
+def build_query_tasks(question: str, schema: Dict[str, Any]) -> QueryTaskList:
 
     schema_json = json.dumps(
         schema,
         ensure_ascii=False,
         indent=2
     )
+
+    relation_text = build_relation_text()
 
     prompt = f"""
                 你是企业级 SQL 查询规划助手。
@@ -175,6 +262,7 @@ def build_query_tasks(
 
                 1. 用户问题
                 2. 数据库 schema
+                3. 表关系
 
                 生成结构化查询任务。
 
@@ -191,6 +279,19 @@ def build_query_tasks(
                 4. 不允许 markdown
 
                 5. 不允许解释
+
+                ======================================================
+
+                所有字段必须使用：
+
+                table.field
+
+                格式。
+
+                例如：
+
+                student.name
+                teacher.name
 
                 ======================================================
 
@@ -211,44 +312,17 @@ def build_query_tasks(
 
                 ======================================================
 
-                如果问题包含：
+                join_type 只能是：
 
-                - 多个统计对象
-                - 多个实体
-                - 多个查询需求
-
-                必须拆分为多个 tasks。
+                - inner
+                - left
+                - right
 
                 ======================================================
 
-                如果问题包含：
+                数据库关系：
 
-                - 每个
-                - 每位
-                - 各自
-                - 分组统计
-
-                必须使用 group_by。
-
-                ======================================================
-
-                如果问题包含：
-
-                - 排序
-                - 降序
-                - 升序
-                - Top N
-
-                必须使用 order_by。
-
-                ======================================================
-
-                如果问题包含：
-
-                - 不同
-                - 去重
-
-                必须使用 aggregation.distinct=true
+                {relation_text}
 
                 ======================================================
 
@@ -261,36 +335,37 @@ def build_query_tasks(
 
                             "plan": {{
 
-                                "table": "表名",
+                                "main_table": "student",
 
-                                "select": [
-                                    "字段"
-                                ],
-
-                                "filters": [
+                                "joins": [
                                     {{
-                                        "field": "字段名",
-                                        "op": "操作符",
-                                        "value": "值"
+                                        "table": "score",
+
+                                        "join_type": "inner",
+
+                                        "on": {{
+                                            "left_field": "student.id",
+                                            "right_field": "score.student_id"
+                                        }}
                                     }}
                                 ],
 
+                                "select": [
+                                    "student.name",
+                                    "teacher.name"
+                                ],
+
+                                "filters": [],
+
                                 "aggregation": {{
-                                    "type": "count",
+                                    "type": "none",
                                     "field": null,
                                     "distinct": false
                                 }},
 
-                                "group_by": [
-                                    "字段"
-                                ],
+                                "group_by": [],
 
-                                "order_by": [
-                                    {{
-                                        "field": "字段",
-                                        "direction": "desc"
-                                    }}
-                                ],
+                                "order_by": [],
 
                                 "limit": 100
                             }}
@@ -303,38 +378,58 @@ def build_query_tasks(
                 示例：
 
                 用户：
-                “每位老师的被选课次数并降序排列”
+                “查询学生姓名以及对应老师姓名”
 
                 返回：
 
                 {{
                     "tasks": [
                         {{
-                            "name": "统计每位老师被选课次数",
+                            "name": "查询学生老师信息",
 
                             "plan": {{
-                                "table": "total_school_info",
 
-                                "select": [],
+                                "main_table": "student",
+
+                                "joins": [
+                                    {{
+                                        "table": "score",
+
+                                        "join_type": "inner",
+
+                                        "on": {{
+                                            "left_field": "student.id",
+                                            "right_field": "score.student_id"
+                                        }}
+                                    }},
+                                    {{
+                                        "table": "teacher",
+
+                                        "join_type": "inner",
+
+                                        "on": {{
+                                            "left_field": "score.teacher_id",
+                                            "right_field": "teacher.id"
+                                        }}
+                                    }}
+                                ],
+
+                                "select": [
+                                    "student.name",
+                                    "teacher.name"
+                                ],
 
                                 "filters": [],
 
                                 "aggregation": {{
-                                    "type": "count",
+                                    "type": "none",
                                     "field": null,
                                     "distinct": false
                                 }},
 
-                                "group_by": [
-                                    "tea_name"
-                                ],
+                                "group_by": [],
 
-                                "order_by": [
-                                    {{
-                                        "field": "result",
-                                        "direction": "desc"
-                                    }}
-                                ],
+                                "order_by": [],
 
                                 "limit": 100
                             }}
@@ -350,14 +445,14 @@ def build_query_tasks(
 
                 ======================================================
 
-                用户问题:
+                用户问题：
 
                 {question}
 
                 ======================================================
 
                 现在开始返回 JSON：
-            """
+"""
 
     result = get_answer(prompt)
 
@@ -384,12 +479,12 @@ def build_query_tasks(
         except Exception:
 
             repair_prompt = f"""
-修复以下 JSON：
+                            修复以下 JSON：
 
-{result}
+                            {result}
 
-只返回合法 JSON。
-"""
+                            只返回合法 JSON。
+                            """
 
             repaired = get_answer(repair_prompt)
 
@@ -411,19 +506,65 @@ def build_query_tasks(
 
 
 # =========================================================
-# Plan Validator
+# Validator
 # =========================================================
+
+def validate_join_relation(left_field: str,right_field: str):
+
+    valid_relations = set()
+
+    for r in RELATIONS:
+
+        a = (
+            f"{r['left_table']}.{r['left_field']}",
+            f"{r['right_table']}.{r['right_field']}"
+        )
+
+        b = (
+            f"{r['right_table']}.{r['right_field']}",
+            f"{r['left_table']}.{r['left_field']}"
+        )
+
+        valid_relations.add(a)
+        valid_relations.add(b)
+
+    if (left_field, right_field) not in valid_relations:
+
+        raise ValueError(
+            f"非法 JOIN 关系: "
+            f"{left_field} = {right_field}"
+        )
+
 
 def validate_plan(plan: QueryPlan):
 
     # =====================================================
-    # Table
+    # MAIN TABLE
     # =====================================================
 
-    if plan.table not in SCHEMA:
-        raise ValueError(f"非法表: {plan.table}")
+    if plan.main_table not in SCHEMA:
 
-    table_fields = SCHEMA[plan.table]["fields"]
+        raise ValueError(
+            f"非法主表: {plan.main_table}"
+        )
+
+    # =====================================================
+    # JOIN TABLE
+    # =====================================================
+
+    for join in plan.joins:
+
+        if join.table not in SCHEMA:
+
+            raise ValueError(
+                f"非法 JOIN 表: {join.table}"
+            )
+
+    # =====================================================
+    # ALLOWED FIELDS
+    # =====================================================
+
+    allowed_fields = get_allowed_fields(plan)
 
     # =====================================================
     # SELECT
@@ -431,7 +572,8 @@ def validate_plan(plan: QueryPlan):
 
     for field in plan.select:
 
-        if field not in table_fields:
+        if field not in allowed_fields:
+
             raise ValueError(
                 f"非法 select 字段: {field}"
             )
@@ -442,7 +584,8 @@ def validate_plan(plan: QueryPlan):
 
     for f in plan.filters:
 
-        if f.field not in table_fields:
+        if f.field not in allowed_fields:
+
             raise ValueError(
                 f"非法 filter 字段: {f.field}"
             )
@@ -453,7 +596,8 @@ def validate_plan(plan: QueryPlan):
 
     for field in plan.group_by:
 
-        if field not in table_fields:
+        if field not in allowed_fields:
+
             raise ValueError(
                 f"非法 group_by 字段: {field}"
             )
@@ -464,14 +608,10 @@ def validate_plan(plan: QueryPlan):
 
     agg = plan.aggregation
 
-    if agg.type in ["sum", "avg"]:
+    if agg.field:
 
-        if not agg.field:
-            raise ValueError(
-                "sum/avg 必须指定 field"
-            )
+        if agg.field not in allowed_fields:
 
-        if agg.field not in table_fields:
             raise ValueError(
                 f"非法 aggregation 字段: {agg.field}"
             )
@@ -480,38 +620,27 @@ def validate_plan(plan: QueryPlan):
     # ORDER BY
     # =====================================================
 
-    valid_order_fields = set(table_fields)
-
-    valid_order_fields.update(plan.group_by)
+    valid_order_fields = set(allowed_fields)
 
     valid_order_fields.add("result")
 
     for o in plan.order_by:
 
         if o.field not in valid_order_fields:
+
             raise ValueError(
                 f"非法排序字段: {o.field}"
             )
 
     # =====================================================
-    # NON AGG CHECK
+    # JOIN RELATION
     # =====================================================
 
-    if agg.type == "none":
+    for join in plan.joins:
 
-        if not plan.select:
-            raise ValueError(
-                "非聚合查询 select 不能为空"
-            )
-
-    # =====================================================
-    # GROUP BY CHECK
-    # =====================================================
-
-    if plan.group_by and agg.type == "none":
-
-        raise ValueError(
-            "group_by 必须配合 aggregation"
+        validate_join_relation(
+            join.on.left_field,
+            join.on.right_field
         )
 
 
@@ -519,15 +648,11 @@ def validate_plan(plan: QueryPlan):
 # SQL Builder
 # =========================================================
 
-def build_sql(
-    plan: QueryPlan
-) -> Tuple[str, Dict[str, Any]]:
-
-    table = plan.table
-
-    agg = plan.aggregation
+def build_sql(plan: QueryPlan) -> Tuple[str, Dict[str, Any]]:
 
     params = {}
+
+    agg = plan.aggregation
 
     # =====================================================
     # SELECT
@@ -535,14 +660,9 @@ def build_sql(
 
     select_fields = []
 
-    # group by 字段先加入
     if plan.group_by:
 
         select_fields.extend(plan.group_by)
-
-    # -----------------------------------------------------
-    # aggregation
-    # -----------------------------------------------------
 
     if agg.type == "sum":
 
@@ -570,15 +690,30 @@ def build_sql(
             f"AVG({agg.field}) AS result"
         )
 
-    # -----------------------------------------------------
-    # non aggregation
-    # -----------------------------------------------------
-
     else:
 
         select_fields.extend(plan.select)
 
     select_clause = ", ".join(select_fields)
+
+    # =====================================================
+    # JOIN
+    # =====================================================
+
+    join_clauses = []
+
+    for join in plan.joins:
+
+        join_sql = f"""
+                    {join.join_type.upper()} JOIN {join.table}
+                    ON {join.on.left_field}
+                    =
+                    {join.on.right_field}
+                    """
+
+        join_clauses.append(join_sql.strip())
+
+    join_clause = "\n".join(join_clauses)
 
     # =====================================================
     # WHERE
@@ -590,10 +725,6 @@ def build_sql(
 
         param_key = f"p{idx}"
 
-        # -------------------------------------------------
-        # eq
-        # -------------------------------------------------
-
         if f.op == "eq":
 
             conditions.append(
@@ -601,10 +732,6 @@ def build_sql(
             )
 
             params[param_key] = f.value
-
-        # -------------------------------------------------
-        # between
-        # -------------------------------------------------
 
         elif f.op == "between":
 
@@ -619,10 +746,6 @@ def build_sql(
 
             params[f"{param_key}_end"] = f.value[1]
 
-        # -------------------------------------------------
-        # last_n_days
-        # -------------------------------------------------
-
         elif f.op == "last_n_days":
 
             conditions.append(
@@ -632,10 +755,6 @@ def build_sql(
             )
 
             params[param_key] = int(f.value)
-
-    # =====================================================
-    # WHERE CLAUSE
-    # =====================================================
 
     where_clause = ""
 
@@ -695,14 +814,21 @@ def build_sql(
     # =====================================================
 
     sql = f"""
-SELECT
-    {select_clause}
-FROM {table}
-{where_clause}
-{group_clause}
-{order_clause}
-{limit_clause}
-"""
+            SELECT
+                {select_clause}
+
+            FROM {plan.main_table}
+
+            {join_clause}
+
+            {where_clause}
+
+            {group_clause}
+
+            {order_clause}
+
+            {limit_clause}
+            """
 
     return sql.strip(), params
 
@@ -713,18 +839,10 @@ FROM {table}
 
 def run_query(question: str):
 
-    # =====================================================
-    # Build Tasks
-    # =====================================================
-
     tasks = build_query_tasks(
         question=question,
         schema=SCHEMA
     )
-
-    # =====================================================
-    # Execute Tasks
-    # =====================================================
 
     results = []
 
@@ -732,9 +850,7 @@ def run_query(question: str):
 
         try:
 
-            print(
-                f"\n================ TASK: {task.name} ================\n"
-            )
+            print(f"\n================ TASK: {task.name} ================\n")
 
             plan = task.plan
 
@@ -770,10 +886,6 @@ def run_query(question: str):
             print("\n================ RESULT ================\n")
             print(query_result)
 
-            # -------------------------------------------------
-            # Save Result
-            # -------------------------------------------------
-
             results.append({
                 "task_name": task.name,
                 "success": True,
@@ -804,7 +916,7 @@ def run_query(question: str):
 if __name__ == "__main__":
 
     result = run_query(
-        "每位老师的被选课次数并降序排列"
+        "查询学生姓名以及对应老师姓名"
     )
 
     print("\n================ FINAL RESULT ================\n")

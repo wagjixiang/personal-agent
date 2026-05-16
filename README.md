@@ -11,6 +11,25 @@
    git clone https://github.com/wagjixiang/personal-agent.git
    ```
 
-2. 配置个人key，
+2. 配置个人.env环境于项目文件夹下
+
+   ```python
+   OPENAI_API_KEY = "sk-xxxx"
+   GPT_MODEL = "qwen-plus"
+   MODEL_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+   
+   DB_HOST = "127.0.0.1"
+   DB_NAME = "school"
+   DB_USER = "root"
+   DB_PASS = "123456"
+   DB_PORT = "3306"
+   ```
+   
+3. 运行demo
+
+   ```python
+   python demo.py
+   ```
 
    
+

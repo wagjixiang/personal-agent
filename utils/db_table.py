@@ -2,7 +2,7 @@
 Author: Wang Jixiang
 Date: 2026-05-12 18:00:52
 LastEditors: Wang Jixiang
-LastEditTime: 2026-05-15 18:27:49
+LastEditTime: 2026-05-16 11:35:06
 Description: table description
 '''
 DATABASE_SCHEMA = {
@@ -62,24 +62,64 @@ DATABASE_SCHEMA = {
             "sel_date": "选课日期",
             "score": "成绩"
         }
-    },
-
-    # "total_school_info":{
-    #     "description": "包含学生信息、选课信息、教师信息、学院信息的总表，查询学生、课程、老师、学校的信息非常有用",
-
-    #     "fields": {
-	# 	    "stu_name": "学生姓名",
-	# 	    "stu_sex": "学生性别",
-	# 	    "stu_birth": "学生出生日期",
-	# 	    "stu_addr": "学生籍贯",
-	# 	    "tea_name": "教师姓名",
-	# 	    "tea_title": "教师职称",
-	# 	    "cou_name": "课程名称",
-	# 	    "cou_credit": "课程学分",
-	# 	    "sel_date": "选课日期",
-	# 	    "score": "成绩",
-	# 	    "col_name": "学院名称",
-	# 	    "col_intro": "学院简介"
-    #     }
-    # }
+    }
 }
+
+
+# =========================================================
+# RELATION GRAPH
+# =========================================================
+
+"""
+关系图非常重要。
+
+用于：
+
+1. 提示 LLM
+2. 校验 JOIN
+3. 后续自动推理 JOIN
+
+示例：
+
+tb_student.col_id = tb_record.col_id
+tb_record.tea_id = tb_teacher.tea_id
+"""
+
+RELATIONS = [
+    {
+        "left_table": "tb_college",
+        "left_field": "col_id",
+
+        "right_table": "tb_student",
+        "right_field": "col_id"
+    },
+    {
+        "left_table": "tb_college",
+        "left_field": "col_id",
+
+        "right_table": "tb_teacher",
+        "right_field": "col_id"
+    },
+    {
+        "left_table": "tb_student",
+        "left_field": "stu_id",
+
+        "right_table": "tb_record",
+        "right_field": "stu_id"
+
+    },
+    {
+        "left_table": "tb_teacher",
+        "left_field": "tea_id",
+
+        "right_table": "tb_course",
+        "right_field": "tea_id"
+    },
+    {
+        "left_table": "tb_course",
+        "left_field": "cou_id",
+
+        "right_table": "tb_record",
+        "right_field": "cou_id"
+    }
+]
