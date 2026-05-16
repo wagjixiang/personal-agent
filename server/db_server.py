@@ -1,9 +1,9 @@
 import os
 import json
-from typing import Optional, Dict, Any, Callable, Type, List, Literal, Tuple
+from typing import Optional, Dict, Any, List, Literal, Tuple
 
 from dotenv import load_dotenv
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
@@ -17,12 +17,12 @@ from server.llm_server import get_answer
 
 SCHEMA = DATABASE_SCHEMA
 
-# 保持本模块为数据库适配层：不在此处注册工具到工具中心
-
+MAX_LIMIT = 1000
 
 # =========================================================
 # DB Service
 # =========================================================
+
 
 class DBService:
 
@@ -37,7 +37,7 @@ class DBService:
         load_dotenv()
 
         host = os.getenv("DB_HOST")
-        port = os.getenv("DB_PORT", "1433")
+        port = os.getenv("DB_PORT", "3306")
         dbname = os.getenv("DB_NAME")
         user = os.getenv("DB_USER")
         password = os.getenv("DB_PASS")
@@ -71,23 +71,6 @@ class DBService:
 
         if ";" in sql_lower:
             raise ValueError("禁止多语句 SQL")
-    
-        if " limit " not in f" {sql_lower} ":
-            sql += " LIMIT 100"
-
-        forbidden = [
-            "insert",
-            "update",
-            "delete",
-            "drop",
-            "alter",
-            "truncate",
-            "create"
-        ]
-
-        for keyword in forbidden:
-            if keyword in sql_lower:
-                raise ValueError(f"非法 SQL: {keyword}")
 
         try:
 
@@ -105,6 +88,7 @@ class DBService:
 
         except SQLAlchemyError as e:
             raise RuntimeError(f"数据库执行失败: {e}")
+
 
 # =========================================================
 # Query Plan Models
@@ -133,18 +117,29 @@ class Filter(BaseModel):
 class Aggregation(BaseModel):
     type: AggType
     field: Optional[str] = None
+    distinct: bool = False
+
+
+class OrderBy(BaseModel):
+    field: str
+    direction: Literal["asc", "desc"]
 
 
 class QueryPlan(BaseModel):
+
     table: str
-    select: List[str]
+
+    select: List[str] = []
+
     filters: List[Filter] = []
+
     aggregation: Aggregation
 
+    group_by: List[str] = []
 
-class QueryPlanParam(BaseModel):
-    question: str
-    db_schema: Dict[str, Any]
+    order_by: List[OrderBy] = []
+
+    limit: int = Field(default=100, le=MAX_LIMIT)
 
 
 class QueryTask(BaseModel):
@@ -157,12 +152,13 @@ class QueryTaskList(BaseModel):
 
 
 # =========================================================
-# Build Query Plan
+# Build Query Tasks
 # =========================================================
-def build_query_tasks(question: str, schema: Dict[str, Any]) -> QueryTaskList:
-    """
-    将用户问题拆解为多个查询任务
-    """
+
+def build_query_tasks(
+    question: str,
+    schema: Dict[str, Any]
+) -> QueryTaskList:
 
     schema_json = json.dumps(
         schema,
@@ -171,145 +167,196 @@ def build_query_tasks(question: str, schema: Dict[str, Any]) -> QueryTaskList:
     )
 
     prompt = f"""
-            你是企业级 SQL 查询规划助手。
+                你是企业级 SQL 查询规划助手。
 
-            你的任务：
+                你的任务：
 
-            根据：
+                根据：
 
-            1. 用户问题
-            2. 数据库 schema
+                1. 用户问题
+                2. 数据库 schema
 
-            生成：
+                生成结构化查询任务。
 
-            结构化查询任务列表。
+                ======================================================
 
-            ======================================================
+                重要规则：
 
-            重要规则：
+                1. 只能使用 schema 中存在的表和字段
 
-            1. 只能使用 schema 中存在的表和字段
+                2. 禁止虚构字段
 
-            2. 禁止虚构字段
+                3. 返回必须是 JSON
 
-            3. 返回必须是 JSON
+                4. 不允许 markdown
 
-            4. 不允许 markdown
+                5. 不允许解释
 
-            5. 不允许解释
+                ======================================================
 
-            6. aggregation.type 只能是：
+                aggregation.type 只能是：
 
-            - sum
-            - count
-            - avg
-            - none
+                - sum
+                - count
+                - avg
+                - none
 
-            7. filters.op 只能是：
+                ======================================================
 
-            - eq
-            - between
-            - last_n_days
+                filters.op 只能是：
 
-            ======================================================
+                - eq
+                - between
+                - last_n_days
 
-            如果用户问题包含：
+                ======================================================
 
-            - 多个统计对象
-            - 多个实体
-            - 多个查询需求
+                如果问题包含：
 
-            必须拆分为多个 tasks。
+                - 多个统计对象
+                - 多个实体
+                - 多个查询需求
 
-            ======================================================
+                必须拆分为多个 tasks。
 
-            返回格式：
+                ======================================================
 
-            {{
-                "tasks": [
-                    {{
-                        "name": "任务名称",
+                如果问题包含：
 
-                        "plan": {{
+                - 每个
+                - 每位
+                - 各自
+                - 分组统计
 
-                            "table": "表名",
+                必须使用 group_by。
 
-                            "select": [
-                                "字段"
-                            ],
+                ======================================================
 
-                            "filters": [
-                                {{
-                                    "field": "字段名",
-                                    "op": "操作符",
-                                    "value": "值"
-                                }}
-                            ],
+                如果问题包含：
 
-                            "aggregation": {{
-                                "type": "聚合类型",
-                                "field": "字段名"
+                - 排序
+                - 降序
+                - 升序
+                - Top N
+
+                必须使用 order_by。
+
+                ======================================================
+
+                如果问题包含：
+
+                - 不同
+                - 去重
+
+                必须使用 aggregation.distinct=true
+
+                ======================================================
+
+                返回格式：
+
+                {{
+                    "tasks": [
+                        {{
+                            "name": "任务名称",
+
+                            "plan": {{
+
+                                "table": "表名",
+
+                                "select": [
+                                    "字段"
+                                ],
+
+                                "filters": [
+                                    {{
+                                        "field": "字段名",
+                                        "op": "操作符",
+                                        "value": "值"
+                                    }}
+                                ],
+
+                                "aggregation": {{
+                                    "type": "count",
+                                    "field": null,
+                                    "distinct": false
+                                }},
+
+                                "group_by": [
+                                    "字段"
+                                ],
+
+                                "order_by": [
+                                    {{
+                                        "field": "字段",
+                                        "direction": "desc"
+                                    }}
+                                ],
+
+                                "limit": 100
                             }}
                         }}
-                    }}
-                ]
-            }}
+                    ]
+                }}
 
-            ======================================================
+                ======================================================
 
-            数据库 schema:
+                示例：
 
-            {schema_json}
+                用户：
+                “每位老师的被选课次数并降序排列”
 
-            ======================================================
+                返回：
 
-            用户问题:
-
-            {question}
-
-            ======================================================
-
-            示例：
-
-            用户：
-            “请帮我查询老师和学生各有多少人”
-
-            返回：
-
-            {{
-            "tasks": [
                 {{
-                "name": "查询教师人数",
+                    "tasks": [
+                        {{
+                            "name": "统计每位老师被选课次数",
 
-                "plan": {{
-                    "table": "teacher",
-                    "select": [],
-                    "filters": [],
-                    "aggregation": {{
-                    "type": "count",
-                    "field": null
-                    }}
+                            "plan": {{
+                                "table": "total_school_info",
+
+                                "select": [],
+
+                                "filters": [],
+
+                                "aggregation": {{
+                                    "type": "count",
+                                    "field": null,
+                                    "distinct": false
+                                }},
+
+                                "group_by": [
+                                    "tea_name"
+                                ],
+
+                                "order_by": [
+                                    {{
+                                        "field": "result",
+                                        "direction": "desc"
+                                    }}
+                                ],
+
+                                "limit": 100
+                            }}
+                        }}
+                    ]
                 }}
-                }},
-                {{
-                "name": "查询学生人数",
 
-                "plan": {{
-                    "table": "student",
-                    "select": [],
-                    "filters": [],
-                    "aggregation": {{
-                    "type": "count",
-                    "field": null
-                    }}
-                }}
-                }}
-            ]
-            }}
+                ======================================================
 
-            ======================================================
+                数据库 schema:
 
-            现在开始返回 JSON：
+                {schema_json}
+
+                ======================================================
+
+                用户问题:
+
+                {question}
+
+                ======================================================
+
+                现在开始返回 JSON：
             """
 
     result = get_answer(prompt)
@@ -331,19 +378,27 @@ def build_query_tasks(question: str, schema: Dict[str, Any]) -> QueryTaskList:
         )
 
         try:
+
             result = json.loads(result)
 
         except Exception:
 
             repair_prompt = f"""
-                修复以下 JSON:
+修复以下 JSON：
 
-                {result}
+{result}
 
-                只返回合法 JSON
-                """
+只返回合法 JSON。
+"""
 
             repaired = get_answer(repair_prompt)
+
+            repaired = (
+                repaired
+                .replace("```json", "")
+                .replace("```", "")
+                .strip()
+            )
 
             result = json.loads(repaired)
 
@@ -354,25 +409,37 @@ def build_query_tasks(question: str, schema: Dict[str, Any]) -> QueryTaskList:
 
     return tasks
 
+
 # =========================================================
 # Plan Validator
 # =========================================================
 
 def validate_plan(plan: QueryPlan):
 
-    # 检查表
+    # =====================================================
+    # Table
+    # =====================================================
+
     if plan.table not in SCHEMA:
         raise ValueError(f"非法表: {plan.table}")
 
     table_fields = SCHEMA[plan.table]["fields"]
 
-    # 检查 select 字段
+    # =====================================================
+    # SELECT
+    # =====================================================
+
     for field in plan.select:
 
         if field not in table_fields:
-            raise ValueError(f"非法 select 字段: {field}")
+            raise ValueError(
+                f"非法 select 字段: {field}"
+            )
 
-    # 检查 filters
+    # =====================================================
+    # FILTER
+    # =====================================================
+
     for f in plan.filters:
 
         if f.field not in table_fields:
@@ -380,7 +447,21 @@ def validate_plan(plan: QueryPlan):
                 f"非法 filter 字段: {f.field}"
             )
 
-    # 检查 aggregation
+    # =====================================================
+    # GROUP BY
+    # =====================================================
+
+    for field in plan.group_by:
+
+        if field not in table_fields:
+            raise ValueError(
+                f"非法 group_by 字段: {field}"
+            )
+
+    # =====================================================
+    # AGGREGATION
+    # =====================================================
+
     agg = plan.aggregation
 
     if agg.type in ["sum", "avg"]:
@@ -394,11 +475,45 @@ def validate_plan(plan: QueryPlan):
             raise ValueError(
                 f"非法 aggregation 字段: {agg.field}"
             )
-        
-    if agg.type == "none" and not plan.select:
+
+    # =====================================================
+    # ORDER BY
+    # =====================================================
+
+    valid_order_fields = set(table_fields)
+
+    valid_order_fields.update(plan.group_by)
+
+    valid_order_fields.add("result")
+
+    for o in plan.order_by:
+
+        if o.field not in valid_order_fields:
+            raise ValueError(
+                f"非法排序字段: {o.field}"
+            )
+
+    # =====================================================
+    # NON AGG CHECK
+    # =====================================================
+
+    if agg.type == "none":
+
+        if not plan.select:
+            raise ValueError(
+                "非聚合查询 select 不能为空"
+            )
+
+    # =====================================================
+    # GROUP BY CHECK
+    # =====================================================
+
+    if plan.group_by and agg.type == "none":
+
         raise ValueError(
-            "非聚合查询 select 不能为空"
+            "group_by 必须配合 aggregation"
         )
+
 
 # =========================================================
 # SQL Builder
@@ -418,25 +533,52 @@ def build_sql(
     # SELECT
     # =====================================================
 
+    select_fields = []
+
+    # group by 字段先加入
+    if plan.group_by:
+
+        select_fields.extend(plan.group_by)
+
+    # -----------------------------------------------------
+    # aggregation
+    # -----------------------------------------------------
+
     if agg.type == "sum":
 
-        select_clause = (
+        select_fields.append(
             f"SUM({agg.field}) AS result"
         )
 
     elif agg.type == "count":
 
-        select_clause = "COUNT(*) AS result"
+        if agg.distinct and agg.field:
+
+            select_fields.append(
+                f"COUNT(DISTINCT {agg.field}) AS result"
+            )
+
+        else:
+
+            select_fields.append(
+                "COUNT(*) AS result"
+            )
 
     elif agg.type == "avg":
 
-        select_clause = (
+        select_fields.append(
             f"AVG({agg.field}) AS result"
         )
 
+    # -----------------------------------------------------
+    # non aggregation
+    # -----------------------------------------------------
+
     else:
 
-        select_clause = ", ".join(plan.select)
+        select_fields.extend(plan.select)
+
+    select_clause = ", ".join(select_fields)
 
     # =====================================================
     # WHERE
@@ -448,9 +590,9 @@ def build_sql(
 
         param_key = f"p{idx}"
 
-        # ---------------------------------------------
+        # -------------------------------------------------
         # eq
-        # ---------------------------------------------
+        # -------------------------------------------------
 
         if f.op == "eq":
 
@@ -460,9 +602,9 @@ def build_sql(
 
             params[param_key] = f.value
 
-        # ---------------------------------------------
+        # -------------------------------------------------
         # between
-        # ---------------------------------------------
+        # -------------------------------------------------
 
         elif f.op == "between":
 
@@ -474,11 +616,12 @@ def build_sql(
             )
 
             params[f"{param_key}_start"] = f.value[0]
+
             params[f"{param_key}_end"] = f.value[1]
 
-        # ---------------------------------------------
+        # -------------------------------------------------
         # last_n_days
-        # ---------------------------------------------
+        # -------------------------------------------------
 
         elif f.op == "last_n_days":
 
@@ -502,23 +645,76 @@ def build_sql(
             "WHERE " + " AND ".join(conditions)
         )
 
+    # =====================================================
+    # GROUP BY
+    # =====================================================
+
+    group_clause = ""
+
+    if plan.group_by:
+
+        group_clause = (
+            "GROUP BY "
+            + ", ".join(plan.group_by)
+        )
+
+    # =====================================================
+    # ORDER BY
+    # =====================================================
+
+    order_clause = ""
+
+    if plan.order_by:
+
+        order_items = []
+
+        for o in plan.order_by:
+
+            order_items.append(
+                f"{o.field} {o.direction.upper()}"
+            )
+
+        order_clause = (
+            "ORDER BY "
+            + ", ".join(order_items)
+        )
+
+    # =====================================================
+    # LIMIT
+    # =====================================================
+
+    limit_value = min(
+        plan.limit,
+        MAX_LIMIT
+    )
+
+    limit_clause = f"LIMIT {limit_value}"
+
+    # =====================================================
+    # FINAL SQL
+    # =====================================================
+
     sql = f"""
-        SELECT {select_clause}
-        FROM {table}
-        {where_clause}
-        """
+SELECT
+    {select_clause}
+FROM {table}
+{where_clause}
+{group_clause}
+{order_clause}
+{limit_clause}
+"""
 
     return sql.strip(), params
 
 
 # =========================================================
-# Run Query Tasks
+# Run Query
 # =========================================================
 
 def run_query(question: str):
 
     # =====================================================
-    # 1. Build Tasks
+    # Build Tasks
     # =====================================================
 
     tasks = build_query_tasks(
@@ -527,12 +723,13 @@ def run_query(question: str):
     )
 
     # =====================================================
-    # 2. Execute Tasks
+    # Execute Tasks
     # =====================================================
 
     results = []
 
     for task in tasks.tasks:
+
         try:
 
             print(
@@ -540,6 +737,8 @@ def run_query(question: str):
             )
 
             plan = task.plan
+
+            print(plan)
 
             # -------------------------------------------------
             # Validate
@@ -560,7 +759,7 @@ def run_query(question: str):
             print(params)
 
             # -------------------------------------------------
-            # Execute SQL
+            # Execute
             # -------------------------------------------------
 
             query_result = DBService.execute_select(
@@ -577,12 +776,15 @@ def run_query(question: str):
 
             results.append({
                 "task_name": task.name,
+                "success": True,
                 "query_plan": plan.model_dump(),
                 "sql": sql,
                 "params": params,
                 "data": query_result
             })
+
         except Exception as e:
+
             results.append({
                 "task_name": task.name,
                 "success": False,
@@ -593,3 +795,24 @@ def run_query(question: str):
         "success": True,
         "tasks": results
     }
+
+
+# =========================================================
+# Example
+# =========================================================
+
+if __name__ == "__main__":
+
+    result = run_query(
+        "每位老师的被选课次数并降序排列"
+    )
+
+    print("\n================ FINAL RESULT ================\n")
+
+    print(
+        json.dumps(
+            result,
+            ensure_ascii=False,
+            indent=2
+        )
+    )

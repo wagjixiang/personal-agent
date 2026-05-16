@@ -2,7 +2,7 @@
 Author: Wang Jixiang
 Date: 2026-05-12 18:00:52
 LastEditors: Wang Jixiang
-LastEditTime: 2026-05-15 15:43:17
+LastEditTime: 2026-05-15 18:27:49
 Description: table description
 '''
 DATABASE_SCHEMA = {
@@ -62,5 +62,24 @@ DATABASE_SCHEMA = {
             "sel_date": "选课日期",
             "score": "成绩"
         }
-    }
+    },
+
+    # "total_school_info":{
+    #     "description": "包含学生信息、选课信息、教师信息、学院信息的总表，查询学生、课程、老师、学校的信息非常有用",
+
+    #     "fields": {
+	# 	    "stu_name": "学生姓名",
+	# 	    "stu_sex": "学生性别",
+	# 	    "stu_birth": "学生出生日期",
+	# 	    "stu_addr": "学生籍贯",
+	# 	    "tea_name": "教师姓名",
+	# 	    "tea_title": "教师职称",
+	# 	    "cou_name": "课程名称",
+	# 	    "cou_credit": "课程学分",
+	# 	    "sel_date": "选课日期",
+	# 	    "score": "成绩",
+	# 	    "col_name": "学院名称",
+	# 	    "col_intro": "学院简介"
+    #     }
+    # }
 }
