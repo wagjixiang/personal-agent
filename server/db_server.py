@@ -3,7 +3,7 @@ import json
 from typing import Optional, Dict, Any, List, Literal, Tuple, Set
 
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
@@ -12,17 +12,36 @@ from utils.db_table import DATABASE_SCHEMA, RELATIONS
 from server.llm_server import get_answer
 
 # =========================================================
-# Schema Layer
+# Global Config
 # =========================================================
 
 SCHEMA = DATABASE_SCHEMA
 
 MAX_LIMIT = 1000
 
+ALLOWED_AGG_TYPES = {
+    "sum",
+    "count",
+    "avg",
+    "none"
+}
+
+ALLOWED_FILTER_OPS = {
+    "eq",
+    "between",
+    "last_n_days"
+}
+
+ALLOWED_JOIN_TYPES = {
+    "inner",
+    "left",
+    "right"
+}
+
+
 # =========================================================
 # DB Service
 # =========================================================
-
 
 class DBService:
 
@@ -45,6 +64,7 @@ class DBService:
         url = (
             f"mysql+pymysql://{user}:{password}"
             f"@{host}:{port}/{dbname}"
+            f"?charset=utf8mb4"
         )
 
         cls._engine = create_engine(
@@ -52,6 +72,7 @@ class DBService:
             pool_size=10,
             max_overflow=20,
             pool_pre_ping=True,
+            pool_recycle=3600,
             echo=False
         )
 
@@ -66,11 +87,31 @@ class DBService:
 
         sql_lower = sql.lower().strip()
 
+        # =====================================================
+        # Security Check
+        # =====================================================
+
         if not sql_lower.startswith("select"):
-            raise ValueError("只允许 SELECT")
+            raise ValueError("只允许 SELECT 语句")
 
         if ";" in sql_lower:
             raise ValueError("禁止多语句 SQL")
+
+        forbidden_keywords = [
+            "insert",
+            "update",
+            "delete",
+            "drop",
+            "alter",
+            "truncate",
+            "create",
+            "replace"
+        ]
+
+        for keyword in forbidden_keywords:
+
+            if keyword in sql_lower:
+                raise ValueError(f"非法 SQL 关键字: {keyword}")
 
         try:
 
@@ -87,11 +128,12 @@ class DBService:
                 ]
 
         except SQLAlchemyError as e:
-            raise RuntimeError(f"数据库执行失败: {e}")
+
+            raise RuntimeError(f"数据库执行失败: {str(e)}")
 
 
 # =========================================================
-# Query Plan Models
+# Query Models
 # =========================================================
 
 FieldOp = Literal[
@@ -124,19 +166,25 @@ class Filter(BaseModel):
 class Aggregation(BaseModel):
 
     type: AggType
+
     field: Optional[str] = None
+
     distinct: bool = False
+
+    alias: str = "result"
 
 
 class OrderBy(BaseModel):
 
     field: str
+
     direction: Literal["asc", "desc"]
 
 
 class JoinCondition(BaseModel):
 
     left_field: str
+
     right_field: str
 
 
@@ -151,29 +199,30 @@ class Join(BaseModel):
 
 class QueryPlan(BaseModel):
 
-    # 主表
     main_table: str
 
-    # JOIN
     joins: List[Join] = []
 
-    # 查询字段
     select: List[str] = []
 
-    # 条件
     filters: List[Filter] = []
 
-    # 聚合
     aggregation: Aggregation
 
-    # 分组
     group_by: List[str] = []
 
-    # 排序
     order_by: List[OrderBy] = []
 
-    # 限制
     limit: int = Field(default=100, le=MAX_LIMIT)
+
+    @field_validator("limit")
+    @classmethod
+    def validate_limit(cls, v):
+
+        if v <= 0:
+            return 100
+
+        return min(v, MAX_LIMIT)
 
 
 class QueryTask(BaseModel):
@@ -239,11 +288,58 @@ def get_allowed_fields(plan: QueryPlan) -> Set[str]:
     return fields
 
 
+def safe_json_loads(raw: str) -> Dict[str, Any]:
+
+    raw = (
+        raw
+        .replace("```json", "")
+        .replace("```", "")
+        .strip()
+    )
+
+    try:
+
+        return json.loads(raw)
+
+    except Exception:
+
+        repair_prompt = f"""
+你是 JSON 修复助手。
+
+请修复下面的 JSON。
+
+要求：
+
+1. 只返回 JSON
+2. 不要 markdown
+3. 不要解释
+4. 保持原始字段结构
+
+待修复 JSON:
+
+{raw}
+"""
+
+        repaired = get_answer(repair_prompt)
+
+        repaired = (
+            repaired
+            .replace("```json", "")
+            .replace("```", "")
+            .strip()
+        )
+
+        return json.loads(repaired)
+
+
 # =========================================================
 # Build Query Tasks
 # =========================================================
 
-def build_query_tasks(question: str, schema: Dict[str, Any]) -> QueryTaskList:
+def build_query_tasks(
+    question: str,
+    schema: Dict[str, Any]
+) -> QueryTaskList:
 
     schema_json = json.dumps(
         schema,
@@ -254,204 +350,139 @@ def build_query_tasks(question: str, schema: Dict[str, Any]) -> QueryTaskList:
     relation_text = build_relation_text()
 
     prompt = f"""
-                你是企业级 SQL 查询规划助手。
+你是企业级 SQL 查询规划助手。
 
-                你的任务：
+你的任务：
 
-                根据：
+根据：
 
-                1. 用户问题
-                2. 数据库 schema
-                3. 表关系
+1. 用户问题
+2. 数据库 schema
+3. 表关系
 
-                生成结构化查询任务。
+生成结构化查询任务。
 
-                ======================================================
+======================================================
 
-                重要规则：
+规则：
 
-                1. 只能使用 schema 中存在的表和字段
+1. 只能使用 schema 中存在的表和字段
+2. 所有字段必须使用 table.field 格式
+3. 禁止虚构字段
+4. 返回必须是 JSON
+5. 不允许 markdown
+6. 不允许解释
+7. aggregation.type 只能是:
+   - sum
+   - count
+   - avg
+   - none
+8. filters.op 只能是:
+   - eq
+   - between
+   - last_n_days
+9. join_type 只能是:
+   - inner
+   - left
+   - right
 
-                2. 禁止虚构字段
+======================================================
 
-                3. 返回必须是 JSON
+聚合规则：
 
-                4. 不允许 markdown
+1. aggregation.alias 必须存在
+2. order_by 只能使用:
+   - alias
+   - group_by字段
+   - select字段
 
-                5. 不允许解释
+3. 禁止使用:
+   - count(...)
+   - sum(...)
+   - avg(...)
 
-                ======================================================
+======================================================
 
-                所有字段必须使用：
+如果用户问题包含多个查询需求，
+必须拆分为多个 tasks。
 
-                table.field
+======================================================
 
-                格式。
+数据库关系：
 
-                例如：
+{relation_text}
 
-                student.name
-                teacher.name
+======================================================
 
-                ======================================================
+数据库 schema：
 
-                aggregation.type 只能是：
+{schema_json}
 
-                - sum
-                - count
-                - avg
-                - none
+======================================================
 
-                ======================================================
+用户问题：
 
-                filters.op 只能是：
+{question}
 
-                - eq
-                - between
-                - last_n_days
+======================================================
 
-                ======================================================
+返回格式：
 
-                join_type 只能是：
+{{
+    "tasks": [
+        {{
+            "name": "任务名称",
 
-                - inner
-                - left
-                - right
+            "plan": {{
 
-                ======================================================
+                "main_table": "tb_student",
 
-                数据库关系：
+                "joins": [
+                    {{
+                        "table": "tb_score",
 
-                {relation_text}
+                        "join_type": "inner",
 
-                ======================================================
-
-                返回格式：
-
-                {{
-                    "tasks": [
-                        {{
-                            "name": "任务名称",
-
-                            "plan": {{
-
-                                "main_table": "student",
-
-                                "joins": [
-                                    {{
-                                        "table": "score",
-
-                                        "join_type": "inner",
-
-                                        "on": {{
-                                            "left_field": "student.id",
-                                            "right_field": "score.student_id"
-                                        }}
-                                    }}
-                                ],
-
-                                "select": [
-                                    "student.name",
-                                    "teacher.name"
-                                ],
-
-                                "filters": [],
-
-                                "aggregation": {{
-                                    "type": "none",
-                                    "field": null,
-                                    "distinct": false
-                                }},
-
-                                "group_by": [],
-
-                                "order_by": [],
-
-                                "limit": 100
-                            }}
+                        "on": {{
+                            "left_field": "tb_student.stu_id",
+                            "right_field": "tb_score.stu_id"
                         }}
-                    ]
-                }}
+                    }}
+                ],
 
-                ======================================================
+                "select": [
+                    "tb_student.stu_name"
+                ],
 
-                示例：
+                "filters": [],
 
-                用户：
-                “查询学生姓名以及对应老师姓名”
+                "aggregation": {{
+                    "type": "count",
+                    "field": "tb_score.score",
+                    "distinct": false,
+                    "alias": "result"
+                }},
 
-                返回：
+                "group_by": [
+                    "tb_student.stu_name"
+                ],
 
-                {{
-                    "tasks": [
-                        {{
-                            "name": "查询学生老师信息",
+                "order_by": [
+                    {{
+                        "field": "result",
+                        "direction": "desc"
+                    }}
+                ],
 
-                            "plan": {{
+                "limit": 100
+            }}
+        }}
+    ]
+}}
 
-                                "main_table": "student",
+======================================================
 
-                                "joins": [
-                                    {{
-                                        "table": "score",
-
-                                        "join_type": "inner",
-
-                                        "on": {{
-                                            "left_field": "student.id",
-                                            "right_field": "score.student_id"
-                                        }}
-                                    }},
-                                    {{
-                                        "table": "teacher",
-
-                                        "join_type": "inner",
-
-                                        "on": {{
-                                            "left_field": "score.teacher_id",
-                                            "right_field": "teacher.id"
-                                        }}
-                                    }}
-                                ],
-
-                                "select": [
-                                    "student.name",
-                                    "teacher.name"
-                                ],
-
-                                "filters": [],
-
-                                "aggregation": {{
-                                    "type": "none",
-                                    "field": null,
-                                    "distinct": false
-                                }},
-
-                                "group_by": [],
-
-                                "order_by": [],
-
-                                "limit": 100
-                            }}
-                        }}
-                    ]
-                }}
-
-                ======================================================
-
-                数据库 schema:
-
-                {schema_json}
-
-                ======================================================
-
-                用户问题：
-
-                {question}
-
-                ======================================================
-
-                现在开始返回 JSON：
+现在开始返回 JSON：
 """
 
     result = get_answer(prompt)
@@ -459,43 +490,9 @@ def build_query_tasks(question: str, schema: Dict[str, Any]) -> QueryTaskList:
     print("\n================ RAW TASKS ================\n")
     print(result)
 
-    # =====================================================
-    # String -> Dict
-    # =====================================================
-
     if isinstance(result, str):
 
-        result = (
-            result
-            .replace("```json", "")
-            .replace("```", "")
-            .strip()
-        )
-
-        try:
-
-            result = json.loads(result)
-
-        except Exception:
-
-            repair_prompt = f"""
-                            修复以下 JSON：
-
-                            {result}
-
-                            只返回合法 JSON。
-                            """
-
-            repaired = get_answer(repair_prompt)
-
-            repaired = (
-                repaired
-                .replace("```json", "")
-                .replace("```", "")
-                .strip()
-            )
-
-            result = json.loads(repaired)
+        result = safe_json_loads(result)
 
     tasks = QueryTaskList.model_validate(result)
 
@@ -509,7 +506,10 @@ def build_query_tasks(question: str, schema: Dict[str, Any]) -> QueryTaskList:
 # Validator
 # =========================================================
 
-def validate_join_relation(left_field: str,right_field: str):
+def validate_join_relation(
+    left_field: str,
+    right_field: str
+):
 
     valid_relations = set()
 
@@ -539,7 +539,7 @@ def validate_join_relation(left_field: str,right_field: str):
 def validate_plan(plan: QueryPlan):
 
     # =====================================================
-    # MAIN TABLE
+    # Main Table
     # =====================================================
 
     if plan.main_table not in SCHEMA:
@@ -549,7 +549,7 @@ def validate_plan(plan: QueryPlan):
         )
 
     # =====================================================
-    # JOIN TABLE
+    # Join Tables
     # =====================================================
 
     for join in plan.joins:
@@ -561,7 +561,7 @@ def validate_plan(plan: QueryPlan):
             )
 
     # =====================================================
-    # ALLOWED FIELDS
+    # Allowed Fields
     # =====================================================
 
     allowed_fields = get_allowed_fields(plan)
@@ -608,6 +608,12 @@ def validate_plan(plan: QueryPlan):
 
     agg = plan.aggregation
 
+    if agg.type not in ALLOWED_AGG_TYPES:
+
+        raise ValueError(
+            f"非法 aggregation.type: {agg.type}"
+        )
+
     if agg.field:
 
         if agg.field not in allowed_fields:
@@ -620,9 +626,14 @@ def validate_plan(plan: QueryPlan):
     # ORDER BY
     # =====================================================
 
-    valid_order_fields = set(allowed_fields)
+    valid_order_fields = set()
 
-    valid_order_fields.add("result")
+    valid_order_fields.update(allowed_fields)
+    valid_order_fields.update(plan.select)
+    valid_order_fields.update(plan.group_by)
+
+    if agg.alias:
+        valid_order_fields.add(agg.alias)
 
     for o in plan.order_by:
 
@@ -660,14 +671,23 @@ def build_sql(plan: QueryPlan) -> Tuple[str, Dict[str, Any]]:
 
     select_fields = []
 
-    if plan.group_by:
+    # group by 字段自动补入
+    for field in plan.group_by:
 
-        select_fields.extend(plan.group_by)
+        if field not in select_fields:
+            select_fields.append(field)
 
+    # 非聚合 select
+    for field in plan.select:
+
+        if field not in select_fields:
+            select_fields.append(field)
+
+    # 聚合
     if agg.type == "sum":
 
         select_fields.append(
-            f"SUM({agg.field}) AS result"
+            f"SUM({agg.field}) AS {agg.alias}"
         )
 
     elif agg.type == "count":
@@ -675,26 +695,28 @@ def build_sql(plan: QueryPlan) -> Tuple[str, Dict[str, Any]]:
         if agg.distinct and agg.field:
 
             select_fields.append(
-                f"COUNT(DISTINCT {agg.field}) AS result"
+                f"COUNT(DISTINCT {agg.field}) AS {agg.alias}"
+            )
+
+        elif agg.field:
+
+            select_fields.append(
+                f"COUNT({agg.field}) AS {agg.alias}"
             )
 
         else:
 
             select_fields.append(
-                "COUNT(*) AS result"
+                f"COUNT(*) AS {agg.alias}"
             )
 
     elif agg.type == "avg":
 
         select_fields.append(
-            f"AVG({agg.field}) AS result"
+            f"AVG({agg.field}) AS {agg.alias}"
         )
 
-    else:
-
-        select_fields.extend(plan.select)
-
-    select_clause = ", ".join(select_fields)
+    select_clause = ",\n    ".join(select_fields)
 
     # =====================================================
     # JOIN
@@ -705,11 +727,9 @@ def build_sql(plan: QueryPlan) -> Tuple[str, Dict[str, Any]]:
     for join in plan.joins:
 
         join_sql = f"""
-                    {join.join_type.upper()} JOIN {join.table}
-                    ON {join.on.left_field}
-                    =
-                    {join.on.right_field}
-                    """
+{join.join_type.upper()} JOIN {join.table}
+ON {join.on.left_field} = {join.on.right_field}
+"""
 
         join_clauses.append(join_sql.strip())
 
@@ -743,7 +763,6 @@ def build_sql(plan: QueryPlan) -> Tuple[str, Dict[str, Any]]:
             )
 
             params[f"{param_key}_start"] = f.value[0]
-
             params[f"{param_key}_end"] = f.value[1]
 
         elif f.op == "last_n_days":
@@ -802,15 +821,10 @@ def build_sql(plan: QueryPlan) -> Tuple[str, Dict[str, Any]]:
     # LIMIT
     # =====================================================
 
-    limit_value = min(
-        plan.limit,
-        MAX_LIMIT
-    )
-
-    limit_clause = f"LIMIT {limit_value}"
+    limit_clause = f"LIMIT {plan.limit}"
 
     # =====================================================
-    # FINAL SQL
+    # Final SQL
     # =====================================================
 
     sql = f"""
@@ -850,21 +864,23 @@ def run_query(question: str):
 
         try:
 
-            print(f"\n================ TASK: {task.name} ================\n")
+            print(
+                f"\n================ TASK: {task.name} ================\n"
+            )
 
             plan = task.plan
 
             print(plan)
 
-            # -------------------------------------------------
+            # =================================================
             # Validate
-            # -------------------------------------------------
+            # =================================================
 
             validate_plan(plan)
 
-            # -------------------------------------------------
+            # =================================================
             # Build SQL
-            # -------------------------------------------------
+            # =================================================
 
             sql, params = build_sql(plan)
 
@@ -874,9 +890,9 @@ def run_query(question: str):
             print("\n================ PARAMS ================\n")
             print(params)
 
-            # -------------------------------------------------
-            # Execute
-            # -------------------------------------------------
+            # =================================================
+            # Execute SQL
+            # =================================================
 
             query_result = DBService.execute_select(
                 sql,
@@ -916,7 +932,7 @@ def run_query(question: str):
 if __name__ == "__main__":
 
     result = run_query(
-        "查询学生姓名以及对应老师姓名"
+        "统计每门课程的选课人数，并按人数降序排列"
     )
 
     print("\n================ FINAL RESULT ================\n")

@@ -84,7 +84,7 @@ def execute_tool(tool_name: str, arguments: dict):
 try:
     import tools.point_tool  # noqa: F401
     import tools.time_tool  # noqa: F401
-    import tools.select_tool  # noqa: F401
+    import tools.db_tool  # noqa: F401
 except Exception as e:
     # 打印错误以便调试，但不阻止程序启动
     print(f"Warning: failed to import tools package: {e}")
