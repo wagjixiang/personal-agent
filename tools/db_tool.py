@@ -2,7 +2,7 @@
 Author: Wang Jixiang
 Date: 2026-05-15 10:47:36
 LastEditors: Wang Jixiang
-LastEditTime: 2026-05-15 14:51:18
+LastEditTime: 2026-05-22 11:13:41
 Description: 
 '''
 import json
@@ -10,7 +10,7 @@ from datetime import date, datetime
 from pydantic import BaseModel
 
 from utils.tools import tool
-from server.db_server import run_query
+from agents.query_agent import QueryAgent
 
 
 class QueryPlanParam(BaseModel):
@@ -31,6 +31,7 @@ def json_serializer(obj):
     examples=["老师的职称是什么", "学院排名前三的学院是哪些", "学生数量有多少", "老师数量有多少"],
 )
 def select_tool(question: str):
-    result = run_query(question)
+
+    result = QueryAgent.run(question)
 
     return json.dumps(result, ensure_ascii=False, indent=2, default=json_serializer)

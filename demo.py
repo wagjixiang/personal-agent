@@ -1,7 +1,7 @@
 import json
 from flask import Flask, render_template, request, jsonify
 
-from server.llm_server import chat_completion_request
+from llm.chat_api import chat_completion_request
 from utils.tools import generate_openai_tools, execute_tool
 
 app = Flask(__name__)

@@ -9,7 +9,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
 from utils.db_table import DATABASE_SCHEMA, RELATIONS
-from server.llm_server import get_answer
+from llm.chat_api import get_answer
 
 # =========================================================
 # Global Config
@@ -589,6 +589,25 @@ def validate_plan(plan: QueryPlan):
             raise ValueError(
                 f"非法 filter 字段: {f.field}"
             )
+            
+        if f.op == "in":
+
+            if not isinstance(f.value, list):
+
+                raise ValueError(
+                    "in 操作 value 必须为 list"
+                )
+
+        if f.op == "between":
+
+            if (
+                not isinstance(f.value, list)
+                or len(f.value) != 2
+            ):
+
+                raise ValueError(
+                    "between value 必须长度为2"
+                )
 
     # =====================================================
     # GROUP BY
