@@ -1,0 +1,5 @@
+2026-05-26 11:22:24,477 INFO __main__ Agent Round: 1
+2026-05-26 11:22:26,355 INFO __main__ Executing Tool => get_current_time
+2026-05-26 11:22:26,356 INFO __main__ Tool Args => {}
+2026-05-26 11:22:26,356 INFO __main__ Tool Result => {'success': True, 'result': {'time': '2026-05-26 11:22:26'}}
+2026-05-26 11:22:26,356 INFO __main__ Agent Round: 2

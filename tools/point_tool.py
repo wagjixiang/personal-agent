@@ -1,10 +1,4 @@
-'''
-Author: Wang Jixiang
-Date: 2026-05-15 10:47:28
-LastEditors: Wang Jixiang
-LastEditTime: 2026-05-15 14:52:56
-Description: 
-'''
+"""坐标点距离计算工具"""
 from typing import List
 import json
 
@@ -12,7 +6,7 @@ import numpy as np
 from scipy.spatial.distance import cdist
 from pydantic import BaseModel, Field
 
-from utils.tools import tool
+from tool_registry import tool
 
 
 class PointParam(BaseModel):

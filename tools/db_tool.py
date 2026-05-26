@@ -1,15 +1,9 @@
-'''
-Author: Wang Jixiang
-Date: 2026-05-15 10:47:36
-LastEditors: Wang Jixiang
-LastEditTime: 2026-05-22 11:13:41
-Description: 
-'''
+"""数据库查询工具"""
 import json
 from datetime import date, datetime
 from pydantic import BaseModel
 
-from utils.tools import tool
+from tool_registry import tool
 from agents.query_agent import QueryAgent
 
 

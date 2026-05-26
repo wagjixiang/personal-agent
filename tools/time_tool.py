@@ -1,6 +1,7 @@
+"""时间查询工具"""
 from datetime import datetime
 
-from utils.tools import tool
+from tool_registry import tool
 
 
 @tool(

@@ -2,14 +2,33 @@
 <html lang="zh">
 
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>茉莉</title>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>茉莉 AI Agent</title>
+
+    <!-- Markdown -->
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <!-- 代码高亮 -->
+
+    <link
+        rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css"
+    >
+
+    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/highlight.min.js"></script>
 
     <style>
 
         * {
+
             margin: 0;
             padding: 0;
             box-sizing: border-box;
@@ -18,17 +37,23 @@
         body {
 
             background: #0f172a;
+
             font-family: "Microsoft YaHei", sans-serif;
 
             height: 100vh;
 
             display: flex;
+
             flex-direction: column;
 
             color: white;
+
+            overflow: hidden;
         }
 
-        /* 顶部 */
+        /* =====================================================
+           Header
+        ===================================================== */
 
         .header {
 
@@ -42,16 +67,32 @@
 
             align-items: center;
 
+            justify-content: space-between;
+
             padding: 0 24px;
+
+            backdrop-filter: blur(10px);
+
+            flex-shrink: 0;
+        }
+
+        .logo {
 
             font-size: 20px;
 
             font-weight: bold;
-
-            backdrop-filter: blur(10px);
         }
 
-        /* 聊天区域 */
+        .session {
+
+            font-size: 12px;
+
+            color: #94a3b8;
+        }
+
+        /* =====================================================
+           Chat
+        ===================================================== */
 
         .chat-container {
 
@@ -68,7 +109,9 @@
             gap: 20px;
         }
 
-        /* 消息 */
+        /* =====================================================
+           Message
+        ===================================================== */
 
         .message {
 
@@ -85,16 +128,18 @@
 
             border-radius: 18px;
 
-            line-height: 1.7;
+            line-height: 1.8;
 
             font-size: 15px;
 
             word-break: break-word;
 
             animation: fadeIn 0.2s ease;
+
+            overflow-x: auto;
         }
 
-        /* 用户 */
+        /* User */
 
         .user {
 
@@ -112,7 +157,7 @@
             border-bottom-right-radius: 6px;
         }
 
-        /* AI */
+        /* Assistant */
 
         .assistant {
 
@@ -128,7 +173,69 @@
             border: 1px solid rgba(255,255,255,0.05);
         }
 
-        /* 输入区域 */
+        /* =====================================================
+           Markdown
+        ===================================================== */
+
+        .message-content h1,
+        .message-content h2,
+        .message-content h3 {
+
+            margin-top: 12px;
+            margin-bottom: 10px;
+        }
+
+        .message-content p {
+
+            margin: 8px 0;
+        }
+
+        .message-content ul,
+        .message-content ol {
+
+            padding-left: 20px;
+
+            margin: 10px 0;
+        }
+
+        .message-content li {
+
+            margin-bottom: 6px;
+        }
+
+        .message-content pre {
+
+            background: #0f172a;
+
+            border-radius: 12px;
+
+            padding: 14px;
+
+            overflow-x: auto;
+
+            margin-top: 12px;
+
+            margin-bottom: 12px;
+        }
+
+        .message-content code {
+
+            font-family: Consolas, monospace;
+        }
+
+        .message-content p code,
+        .message-content li code {
+
+            background: rgba(255,255,255,0.1);
+
+            padding: 2px 6px;
+
+            border-radius: 6px;
+        }
+
+        /* =====================================================
+           Input
+        ===================================================== */
 
         .input-wrapper {
 
@@ -181,8 +288,6 @@
             color: white;
 
             font-size: 16px;
-
-            resize: none;
         }
 
         #messageInput::placeholder {
@@ -212,7 +317,9 @@
             background: #1d4ed8;
         }
 
-        /* 加载动画 */
+        /* =====================================================
+           Typing
+        ===================================================== */
 
         .typing {
 
@@ -244,33 +351,9 @@
             animation-delay: 0.4s;
         }
 
-        @keyframes bounce {
-
-            0%, 80%, 100% {
-                transform: scale(0.8);
-                opacity: 0.5;
-            }
-
-            40% {
-                transform: scale(1.2);
-                opacity: 1;
-            }
-        }
-
-        @keyframes fadeIn {
-
-            from {
-                opacity: 0;
-                transform: translateY(5px);
-            }
-
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        /* 滚动条 */
+        /* =====================================================
+           Scrollbar
+        ===================================================== */
 
         ::-webkit-scrollbar {
 
@@ -284,19 +367,70 @@
             border-radius: 10px;
         }
 
+        /* =====================================================
+           Animation
+        ===================================================== */
+
+        @keyframes bounce {
+
+            0%, 80%, 100% {
+
+                transform: scale(0.8);
+
+                opacity: 0.5;
+            }
+
+            40% {
+
+                transform: scale(1.2);
+
+                opacity: 1;
+            }
+        }
+
+        @keyframes fadeIn {
+
+            from {
+
+                opacity: 0;
+
+                transform: translateY(5px);
+            }
+
+            to {
+
+                opacity: 1;
+
+                transform: translateY(0);
+            }
+        }
+
     </style>
 
 </head>
 
 <body>
 
-    <!-- 顶部 -->
+    <!-- =====================================================
+         Header
+    ====================================================== -->
 
     <div class="header">
-        茉莉
+
+        <div class="logo">
+            茉莉 AI Agent
+        </div>
+
+        <div
+            class="session"
+            id="sessionText"
+        ></div>
+
     </div>
 
-    <!-- 聊天区域 -->
+    <!-- =====================================================
+         Chat
+    ====================================================== -->
 
     <div
         class="chat-container"
@@ -306,14 +440,16 @@
         <div class="message assistant">
 
             <div class="message-content">
-                你好，我是你的本地 AI Agent
+                你好，我是你的本地 AI Agent 👋
             </div>
 
         </div>
 
     </div>
 
-    <!-- 输入区域 -->
+    <!-- =====================================================
+         Input
+    ====================================================== -->
 
     <div class="input-wrapper">
 
@@ -335,13 +471,68 @@
 
     <script>
 
+        // =====================================================
+        // Session ID
+        // =====================================================
+
+        let sessionId =
+            localStorage.getItem('session_id');
+
+        if (!sessionId) {
+
+            sessionId =
+                crypto.randomUUID();
+
+            localStorage.setItem(
+                'session_id',
+                sessionId
+            );
+        }
+
+        document.getElementById(
+            'sessionText'
+        ).innerText =
+            `Session: ${sessionId.slice(0, 8)}`;
+
+        // =====================================================
+        // DOM
+        // =====================================================
+
         const chatContainer =
             document.getElementById('chatContainer');
 
         const messageInput =
             document.getElementById('messageInput');
 
-        // 添加消息
+        // =====================================================
+        // Markdown Config
+        // =====================================================
+
+        marked.setOptions({
+
+            breaks: true,
+
+            highlight: function(code, lang) {
+
+                if (
+                    lang &&
+                    hljs.getLanguage(lang)
+                ) {
+
+                    return hljs.highlight(
+                        code,
+                        { language: lang }
+                    ).value;
+                }
+
+                return hljs.highlightAuto(code)
+                    .value;
+            }
+        });
+
+        // =====================================================
+        // Add Message
+        // =====================================================
 
         function addMessage(text, role) {
 
@@ -351,18 +542,32 @@
             wrapper.className =
                 `message ${role}`;
 
+            const html =
+                marked.parse(text);
+
             wrapper.innerHTML = `
                 <div class="message-content">
-                    ${text}
+                    ${html}
                 </div>
             `;
 
             chatContainer.appendChild(wrapper);
 
+            // 高亮代码
+
+            wrapper.querySelectorAll('pre code')
+                .forEach((block) => {
+
+                    hljs.highlightElement(block);
+
+                });
+
             scrollBottom();
         }
 
-        // 滚动到底部
+        // =====================================================
+        // Scroll Bottom
+        // =====================================================
 
         function scrollBottom() {
 
@@ -370,7 +575,9 @@
                 chatContainer.scrollHeight;
         }
 
-        // 加载动画
+        // =====================================================
+        // Typing
+        // =====================================================
 
         function addTyping() {
 
@@ -403,11 +610,14 @@
                 document.getElementById('typing');
 
             if (typing) {
+
                 typing.remove();
             }
         }
 
-        // 发送消息
+        // =====================================================
+        // Send Message
+        // =====================================================
 
         async function sendMessage() {
 
@@ -424,7 +634,7 @@
 
             messageInput.value = '';
 
-            // 加载动画
+            // loading
 
             addTyping();
 
@@ -440,7 +650,11 @@
                     },
 
                     body: JSON.stringify({
-                        message: message
+
+                        message: message,
+
+                        session_id: sessionId
+
                     })
 
                 });
@@ -455,27 +669,36 @@
                     'assistant'
                 );
 
+                // 对话结束
+
+                if (data.end_conversation) {
+
+                    messageInput.disabled = true;
+                }
+
             } catch (error) {
 
                 removeTyping();
 
                 addMessage(
-                    '请求失败',
+                    '请求失败，请检查后端服务',
                     'assistant'
                 );
 
                 console.error(error);
             }
-
         }
 
-        // 回车发送
+        // =====================================================
+        // Enter Send
+        // =====================================================
 
         messageInput.addEventListener(
             'keydown',
             function(e) {
 
                 if (e.key === 'Enter') {
+
                     sendMessage();
                 }
 
@@ -485,4 +708,5 @@
     </script>
 
 </body>
+
 </html>

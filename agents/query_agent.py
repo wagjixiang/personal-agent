@@ -1,6 +1,6 @@
 import json
 
-from llm.chat_api import get_answer
+from llm_api import get_answer
 
 from models.query_plan import QueryTaskList
 
