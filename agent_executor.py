@@ -1,9 +1,16 @@
+'''
+Author: Wang Jixiang
+Date: 2026-05-26 17:14:06
+LastEditors: Wang Jixiang
+LastEditTime: 2026-05-26 18:14:44
+Description: 
+'''
 """Agent 执行引擎 - 核心的对话循环逻辑"""
 import json
 from typing import List, Dict, Any, Tuple
 
 from logger import get_logger
-from utils.json_utils import safe_json_loads, safe_json_dumps
+from json_utils import safe_json_loads, safe_json_dumps
 from llm_api import chat_completion_request
 from tool_registry import execute_tool, generate_openai_tools
 from settings import settings

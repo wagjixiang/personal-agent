@@ -8,7 +8,7 @@ from conversation_manager import ConversationManager
 from agent_executor import AgentExecutor
 from constants import END_CONVERSATION_KEYWORDS, DEFAULT_FINAL_ANSWER
 from settings import settings
-from utils.json_utils import safe_json_dumps
+from json_utils import safe_json_dumps
 
 logger = get_logger(__name__)
 

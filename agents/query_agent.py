@@ -1,3 +1,10 @@
+'''
+Author: Wang Jixiang
+Date: 2026-05-26 17:09:36
+LastEditors: Wang Jixiang
+LastEditTime: 2026-05-26 18:16:11
+Description: 
+'''
 import json
 
 from llm_api import get_answer
@@ -20,7 +27,7 @@ from sql.validator import validate_plan
 from sql.builder import build_sql
 from sql.executor import DBExecutor
 
-from utils.json_utils import safe_json_loads
+from json_utils import safe_json_loads
 
 
 class QueryAgent:
