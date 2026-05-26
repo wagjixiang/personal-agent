@@ -5,7 +5,7 @@ from flask import Blueprint, request, jsonify
 
 from logger import get_logger
 from conversation_manager import ConversationManager
-from agents.agent_executor import AgentExecutor
+from agent_executor import AgentExecutor
 from constants import END_CONVERSATION_KEYWORDS, DEFAULT_FINAL_ANSWER
 from settings import settings
 from utils.json_utils import safe_json_dumps
