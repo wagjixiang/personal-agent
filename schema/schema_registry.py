@@ -1,243 +1,634 @@
 """
-Schema Registry - 表元数据管理和优化系统
-用途：
-1. 集中管理所有数据库表的元数据
-2. 提供智能表查询（按关键词推断需要的表）
-3. 生成精简的 schema 信息，减少 Token 消耗
+企业级 Schema Retrieval System
+
+功能：
+1. Schema 元数据管理
+2. 表级 Retrieval
+3. 字段级 Retrieval（Column Pruning）
+4. Relation Expansion
+5. Prompt Compression
+6. Cache
+7. 中文分词
+8. 低 Token Schema Prompt
+
+依赖：
+pip install jieba
 """
 
-from typing import List, Dict, Set, Any
-from utils.db_table import DATABASE_SCHEMA, RELATIONS
+from typing import (
+    List,
+    Dict,
+    Set,
+    Any,
+    Optional,
+    Tuple
+)
+
 import re
+import jieba
+from difflib import SequenceMatcher
+from collections import defaultdict
+
+from utils.db_table import (
+    DATABASE_SCHEMA,
+    RELATIONS
+)
+
+from schema.cache_manager import (
+    get_cache_manager
+)
 
 
-class SchemaRegistry:
-    """表元数据注册表"""
-    
+# =========================================================
+# Metadata Store
+# =========================================================
+
+class SchemaMetadataStore:
+    """
+    负责：
+    - Schema 元数据管理
+    - 表结构访问
+    """
+
     def __init__(self):
+
         self._schema = DATABASE_SCHEMA
         self._relations = RELATIONS
-        self._build_index()
-    
-    def _build_index(self):
-        """构建表名和字段的索引，用于快速查询"""
-        self._table_keywords = {}
-        self._field_keywords = {}
-        
-        for table_name, table_info in self._schema.items():
-            # 表名索引
-            self._table_keywords[table_name] = {
-                "description": table_info.get("description", ""),
-                "fields": list(table_info.get("fields", {}).keys())
-            }
-            
-            # 字段索引：字段名 -> (表名, 字段描述)
-            for field_name, field_desc in table_info.get("fields", {}).items():
-                if field_name not in self._field_keywords:
-                    self._field_keywords[field_name] = []
-                self._field_keywords[field_name].append({
-                    "table": table_name,
-                    "description": field_desc
-                })
-    
-    def get_table_info(self, table_name: str) -> Dict[str, Any]:
-        """获取单个表的详细信息"""
-        if table_name not in self._schema:
-            return None
-        return self._schema[table_name]
-    
-    def get_all_tables(self) -> List[str]:
-        """获取所有表名"""
+
+    @property
+    def schema(self):
+        return self._schema
+
+    @property
+    def relations(self):
+        return self._relations
+
+    def get_table(self, table_name: str):
+
+        return self._schema.get(table_name)
+
+    def get_all_tables(self):
+
         return list(self._schema.keys())
-    
-    def infer_tables_from_query(self, user_query: str) -> List[str]:
-        """
-        智能推断用户查询需要哪些表
-        
-        算法：
-        1. 关键词匹配：检查描述和字段名
-        2. 关系推断：如果需要表A，看是否需要表B（通过外键关系）
-        3. 返回按相关度排序的表列表
-        
-        这样可以避免一次性传递所有表 schema，大幅减少 Token 消耗
-        """
-        query_lower = user_query.lower()
-        
-        # 第一步：按关键词找到匹配的表
-        matches = {}
-        
-        for table_name, table_info in self._schema.items():
-            relevance_score = 0
-            
-            # 表描述匹配
-            description = table_info.get("description", "").lower()
-            if self._calculate_similarity(query_lower, description) > 0:
-                relevance_score += 10
-            
-            # 字段名/字段描述匹配
-            for field_name, field_desc in table_info.get("fields", {}).items():
-                field_lower = f"{field_name} {field_desc}".lower()
-                similarity = self._calculate_similarity(query_lower, field_lower)
-                if similarity > 0:
-                    relevance_score += similarity
-            
-            if relevance_score > 0:
-                matches[table_name] = relevance_score
-        
-        # 第二步：根据关系扩展（例如：查询学生信息可能需要学院信息）
-        extended_tables = set(matches.keys())
-        for table in list(extended_tables):
-            related = self._get_related_tables(table)
-            # 只添加直接相关的表，不要过度扩展
-            extended_tables.update(related)
-        
-        # 返回按相关度排序的表，最相关的在前
-        sorted_tables = sorted(
-            matches.keys(),
-            key=lambda t: matches[t],
+
+
+# =========================================================
+# Tokenizer
+# =========================================================
+
+class ChineseTokenizer:
+    """
+    中文分词器
+    """
+
+    @staticmethod
+    def tokenize(text: str) -> List[str]:
+
+        if not text:
+            return []
+
+        text = text.lower()
+
+        # 去除特殊符号
+        text = re.sub(r"[^\u4e00-\u9fa5a-zA-Z0-9]", " ", text)
+
+        tokens = list(jieba.cut(text))
+
+        # 清理空字符
+        tokens = [
+            token.strip()
+            for token in tokens
+            if token.strip()
+        ]
+
+        return tokens
+
+
+# =========================================================
+# Similarity Engine
+# =========================================================
+
+class SimilarityEngine:
+    """
+    关键词相似度引擎
+    """
+
+    @staticmethod
+    def calculate_similarity(
+        query_tokens: List[str],
+        doc_tokens: List[str],
+        weight: float = 1.0
+    ) -> float:
+
+        if not query_tokens or not doc_tokens:
+            return 0
+
+        exact_match_score = 0
+        fuzzy_match_score = 0
+
+        # 精确匹配
+        for q in query_tokens:
+
+            exact_match_score += doc_tokens.count(q)
+
+        # 模糊匹配
+        for q in query_tokens:
+
+            for d in doc_tokens:
+
+                ratio = SequenceMatcher(
+                    None,
+                    q,
+                    d
+                ).ratio()
+
+                if ratio >= 0.75:
+                    fuzzy_match_score += ratio
+
+        # 综合评分
+        final_score = (
+            exact_match_score * 2 +
+            fuzzy_match_score
+        )
+
+        return final_score * weight
+
+
+# =========================================================
+# Schema Retriever
+# =========================================================
+
+class SchemaRetriever:
+    """
+    表级 Retrieval
+    """
+
+    def __init__(
+        self,
+        metadata_store: SchemaMetadataStore
+    ):
+
+        self.store = metadata_store
+
+        self.tokenizer = ChineseTokenizer()
+
+        self.similarity_engine = SimilarityEngine()
+
+        self._build_index()
+
+    def _build_index(self):
+
+        self.table_index = {}
+
+        for table_name, table_info in self.store.schema.items():
+
+            description = table_info.get(
+                "description",
+                ""
+            )
+
+            fields = table_info.get(
+                "fields",
+                {}
+            )
+
+            field_text = " ".join([
+                f"{k} {v}"
+                for k, v in fields.items()
+            ])
+
+            corpus = f"""
+            {table_name}
+            {description}
+            {field_text}
+            """
+
+            self.table_index[table_name] = {
+                "tokens": self.tokenizer.tokenize(corpus),
+                "description": description,
+                "fields": fields
+            }
+
+    def retrieve_tables(
+        self,
+        query: str,
+        top_k: int = 5
+    ) -> List[Tuple[str, float]]:
+
+        query_tokens = self.tokenizer.tokenize(query)
+
+        scores = []
+
+        for table_name, info in self.table_index.items():
+
+            score = self.similarity_engine.calculate_similarity(
+                query_tokens=query_tokens,
+                doc_tokens=info["tokens"],
+                weight=1.0
+            )
+
+            if score > 0:
+                scores.append((table_name, score))
+
+        scores.sort(
+            key=lambda x: x[1],
             reverse=True
         )
-        
-        # 添加相关表（排在后面，优先级低）
-        for table in extended_tables:
-            if table not in sorted_tables:
-                sorted_tables.append(table)
-        
-        return sorted_tables if sorted_tables else []
-    
-    def _calculate_similarity(self, query: str, text: str) -> float:
-        """计算查询和文本的相似度"""
-        score = 0
-        query_words = set(query.split())
-        text_words = set(text.split())
-        
-        # 词汇交集分数
-        intersection = query_words & text_words
-        if intersection:
-            score += len(intersection)
-        
-        # 子串匹配分数
-        if query in text:
-            score += 5
-        
-        return score
-    
-    def _get_related_tables(self, table_name: str) -> Set[str]:
-        """获取与某个表直接相关的表（通过外键关系）"""
-        related = set()
-        
-        for relation in self._relations:
-            if relation["left_table"] == table_name:
-                related.add(relation["right_table"])
-            elif relation["right_table"] == table_name:
-                related.add(relation["left_table"])
-        
-        return related
-    
-    def get_minimal_schema(self, table_names: List[str]) -> Dict[str, Any]:
-        """
-        生成精简的 schema 信息
-        只包含指定表的信息，用于传递给 LLM
-        
-        返回格式：
-        {
-            "tables": {
-                "tb_student": {
-                    "description": "...",
-                    "fields": {...}
-                }
-            },
-            "relations": [...]  # 仅包含相关的关系
-        }
-        """
-        result = {
-            "tables": {},
-            "relations": []
-        }
-        
-        table_set = set(table_names)
-        
-        # 添加表信息
-        for table_name in table_names:
-            if table_name in self._schema:
-                result["tables"][table_name] = self._schema[table_name]
-        
-        # 添加相关的关系信息
-        for relation in self._relations:
-            if (relation["left_table"] in table_set and 
-                relation["right_table"] in table_set):
-                result["relations"].append(relation)
-        
+
+        return scores[:top_k]
+
+
+# =========================================================
+# Column Retriever
+# =========================================================
+
+class ColumnRetriever:
+    """
+    字段级 Retrieval
+    """
+
+    def __init__(
+        self,
+        metadata_store: SchemaMetadataStore
+    ):
+
+        self.store = metadata_store
+
+        self.tokenizer = ChineseTokenizer()
+
+        self.similarity_engine = SimilarityEngine()
+
+    def retrieve_columns(
+        self,
+        query: str,
+        table_name: str,
+        top_k: int = 10
+    ) -> List[str]:
+
+        table_info = self.store.get_table(table_name)
+
+        if not table_info:
+            return []
+
+        fields = table_info.get("fields", {})
+
+        query_tokens = self.tokenizer.tokenize(query)
+
+        scores = []
+
+        for field_name, field_desc in fields.items():
+
+            field_tokens = self.tokenizer.tokenize(
+                f"{field_name} {field_desc}"
+            )
+
+            score = self.similarity_engine.calculate_similarity(
+                query_tokens,
+                field_tokens
+            )
+
+            if score > 0:
+                scores.append((field_name, score))
+
+        scores.sort(
+            key=lambda x: x[1],
+            reverse=True
+        )
+
+        return [
+            field_name
+            for field_name, _
+            in scores[:top_k]
+        ]
+
+
+# =========================================================
+# Relation Expander
+# =========================================================
+
+class RelationExpander:
+    """
+    表关系扩展器
+    """
+
+    def __init__(
+        self,
+        metadata_store: SchemaMetadataStore
+    ):
+
+        self.store = metadata_store
+
+    def expand(
+        self,
+        tables: List[str],
+        max_depth: int = 1
+    ) -> Set[str]:
+
+        result = set(tables)
+
+        current_level = set(tables)
+
+        for _ in range(max_depth):
+
+            next_level = set()
+
+            for relation in self.store.relations:
+
+                left = relation["left_table"]
+                right = relation["right_table"]
+
+                if left in current_level:
+                    next_level.add(right)
+
+                if right in current_level:
+                    next_level.add(left)
+
+            current_level = next_level - result
+
+            result.update(current_level)
+
         return result
-    
-    def get_schema_prompt(self, user_query: str) -> str:
-        """
-        为 LLM 生成优化的 schema 提示信息
-        
-        流程：
-        1. 智能推断需要的表
-        2. 生成精简 schema
-        3. 格式化为 prompt
-        
-        这样每次查询只传递必要的表信息，大幅减少 Token
-        """
-        # 推断需要的表
-        table_names = self.infer_tables_from_query(user_query)
-        
-        if not table_names:
-            # 如果没有推断到表，返回提示
-            return "未找到匹配的表。请检查查询内容。"
-        
-        # 生成精简 schema
-        schema_info = self.get_minimal_schema(table_names)
-        
-        # 格式化为 prompt
-        prompt = "## 数据库 Schema 信息\n\n"
-        
-        for table_name, table_info in schema_info["tables"].items():
-            prompt += f"### {table_name}\n"
-            prompt += f"描述：{table_info.get('description', '')}\n"
-            prompt += "字段：\n"
-            
-            for field_name, field_desc in table_info.get("fields", {}).items():
-                prompt += f"  - {field_name}: {field_desc}\n"
-            
-            prompt += "\n"
-        
-        if schema_info["relations"]:
-            prompt += "### 表关系\n"
-            for relation in schema_info["relations"]:
-                prompt += (
-                    f"{relation['left_table']}.{relation['left_field']} = "
-                    f"{relation['right_table']}.{relation['right_field']}\n"
+
+
+# =========================================================
+# Prompt Builder
+# =========================================================
+
+class SchemaPromptBuilder:
+    """
+    Schema Prompt 构建器
+    """
+
+    def __init__(
+        self,
+        metadata_store: SchemaMetadataStore
+    ):
+
+        self.store = metadata_store
+
+    def build_prompt(
+        self,
+        tables: List[str],
+        selected_columns: Dict[str, List[str]],
+        compact: bool = True
+    ) -> str:
+
+        lines = []
+
+        lines.append("## 数据库 Schema")
+
+        for table_name in tables:
+
+            table_info = self.store.get_table(table_name)
+
+            if not table_info:
+                continue
+
+            description = table_info.get(
+                "description",
+                ""
+            )
+
+            lines.append("")
+            lines.append(
+                f"Table: {table_name}"
+            )
+
+            lines.append(
+                f"Description: {description}"
+            )
+
+            lines.append("Columns:")
+
+            fields = table_info.get("fields", {})
+
+            selected = selected_columns.get(
+                table_name,
+                []
+            )
+
+            if not selected:
+                selected = list(fields.keys())[:10]
+
+            for field_name in selected:
+
+                desc = fields.get(field_name, "")
+
+                lines.append(
+                    f"- {field_name}: {desc}"
                 )
-        
-        return prompt
+
+        # Relations
+        relations = self._build_relations(tables)
+
+        if relations:
+
+            lines.append("")
+            lines.append("## Relations")
+
+            for rel in relations:
+
+                lines.append(
+                    f"{rel['left_table']}.{rel['left_field']} = "
+                    f"{rel['right_table']}.{rel['right_field']}"
+                )
+
+        return "\n".join(lines)
+
+    def _build_relations(
+        self,
+        tables: List[str]
+    ):
+
+        table_set = set(tables)
+
+        results = []
+
+        for relation in self.store.relations:
+
+            if (
+                relation["left_table"] in table_set
+                and relation["right_table"] in table_set
+            ):
+
+                results.append(relation)
+
+        return results
 
 
-# 全局实例
+# =========================================================
+# Facade Registry
+# =========================================================
+
+class SchemaRegistry:
+    """
+    Schema Retrieval 总入口
+    """
+
+    def __init__(self):
+
+        self.store = SchemaMetadataStore()
+
+        self.retriever = SchemaRetriever(
+            self.store
+        )
+
+        self.column_retriever = ColumnRetriever(
+            self.store
+        )
+
+        self.expander = RelationExpander(
+            self.store
+        )
+
+        self.prompt_builder = SchemaPromptBuilder(
+            self.store
+        )
+
+        self.cache = get_cache_manager()
+
+    def retrieve(
+        self,
+        query: str,
+        top_k_tables: int = 5,
+        top_k_columns: int = 8,
+        relation_depth: int = 1
+    ) -> Dict[str, Any]:
+
+        # ==============================
+        # Cache
+        # ==============================
+
+        cached = self.cache.get_cached_tables(query)
+
+        if cached:
+            return cached
+
+        # ==============================
+        # Retrieve Tables
+        # ==============================
+
+        retrieved = self.retriever.retrieve_tables(
+            query=query,
+            top_k=top_k_tables
+        )
+
+        tables = [
+            table_name
+            for table_name, _
+            in retrieved
+        ]
+
+        # ==============================
+        # Relation Expansion
+        # ==============================
+
+        expanded_tables = self.expander.expand(
+            tables,
+            max_depth=relation_depth
+        )
+
+        expanded_tables = list(expanded_tables)
+
+        # ==============================
+        # Column Retrieval
+        # ==============================
+
+        selected_columns = {}
+
+        for table_name in expanded_tables:
+
+            columns = self.column_retriever.retrieve_columns(
+                query=query,
+                table_name=table_name,
+                top_k=top_k_columns
+            )
+
+            selected_columns[table_name] = columns
+
+        result = {
+            "tables": expanded_tables,
+            "selected_columns": selected_columns
+        }
+
+        self.cache.cache_tables(
+            query,
+            result
+        )
+
+        return result
+
+    def build_schema_prompt(
+        self,
+        query: str
+    ) -> str:
+
+        retrieval_result = self.retrieve(query)
+
+        return self.prompt_builder.build_prompt(
+            tables=retrieval_result["tables"],
+            selected_columns=retrieval_result[
+                "selected_columns"
+            ]
+        )
+
+
+# =========================================================
+# Singleton
+# =========================================================
+
 _registry = None
 
 
 def get_registry() -> SchemaRegistry:
-    """获取全局 SchemaRegistry 实例"""
+
     global _registry
+
     if _registry is None:
         _registry = SchemaRegistry()
+
     return _registry
 
 
-# 便捷函数
-def infer_tables(query: str) -> List[str]:
-    """推断查询需要的表"""
-    return get_registry().infer_tables_from_query(query)
+# =========================================================
+# Helper Functions
+# =========================================================
+
+def retrieve_schema(query: str):
+
+    return get_registry().retrieve(query)
 
 
-def get_schema_for_llm(query: str) -> str:
-    """为 LLM 获取优化的 schema 信息"""
-    return get_registry().get_schema_prompt(query)
+def build_schema_prompt(query: str):
+
+    return get_registry().build_schema_prompt(query)
 
 
-def get_minimal_schema_dict(table_names: List[str]) -> Dict[str, Any]:
-    """获取精简的 schema 字典"""
-    return get_registry().get_minimal_schema(table_names)
+# =========================================================
+# Debug
+# =========================================================
+
+if __name__ == "__main__":
+
+    registry = get_registry()
+
+    question = "统计每个学院的学生数量"
+
+    result = registry.retrieve(question)
+
+    print("=" * 50)
+    print("Retrieval Result")
+    print("=" * 50)
+
+    print(result)
+
+    print("\n")
+    print("=" * 50)
+    print("Prompt")
+    print("=" * 50)
+
+    prompt = registry.build_schema_prompt(
+        question
+    )
+
+    print(prompt)

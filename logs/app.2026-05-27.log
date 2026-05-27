@@ -34,3 +34,100 @@ Redis 连接失败: Error 10061 connecting to 127.0.0.1:6379. 由于目标计算
 2026-05-27 09:32:12 [INFO] __main__: Configuration validated successfully
 2026-05-27 09:32:12 [INFO] __main__: Flask app created successfully
 2026-05-27 09:32:12 [INFO] __main__: Starting server at 0.0.0.0:5000 (debug=True)
+2026-05-27 16:26:46 [INFO] core.conversation_manager: ConversationManager initialized with max_history=20
+2026-05-27 16:26:46 [INFO] core.agent_executor: AgentExecutor initialized with max_tool_rounds=5
+2026-05-27 16:26:58 [ERROR] __main__: Failed to start application: Redis 连接失败: Error 10061 connecting to 127.0.0.1:6379. 由于目标计算机积极拒绝，无法连接。.
+Traceback (most recent call last):
+  File "d:\Mu Yuan\study doc\owner\personal-agent.worktrees\agents-code-optimization-and-cleanup\app.py", line 66, in <module>
+    settings.validate()
+  File "d:\Mu Yuan\study doc\owner\personal-agent.worktrees\agents-code-optimization-and-cleanup\config\settings.py", line 166, in validate
+    raise ValueError("\n".join(errors))
+ValueError: Redis 连接失败: Error 10061 connecting to 127.0.0.1:6379. 由于目标计算机积极拒绝，无法连接。.
+2026-05-27 16:28:56 [INFO] core.conversation_manager: ConversationManager initialized with max_history=20
+2026-05-27 16:28:56 [INFO] core.agent_executor: AgentExecutor initialized with max_tool_rounds=5
+2026-05-27 16:28:56 [INFO] __main__: Configuration validated successfully
+2026-05-27 16:28:56 [INFO] __main__: Flask app created successfully
+2026-05-27 16:28:56 [INFO] __main__: Starting server at 0.0.0.0:5000 (debug=True)
+2026-05-27 16:28:59 [INFO] core.conversation_manager: ConversationManager initialized with max_history=20
+2026-05-27 16:28:59 [INFO] core.agent_executor: AgentExecutor initialized with max_tool_rounds=5
+2026-05-27 16:28:59 [INFO] __main__: Configuration validated successfully
+2026-05-27 16:28:59 [INFO] __main__: Flask app created successfully
+2026-05-27 16:28:59 [INFO] __main__: Starting server at 0.0.0.0:5000 (debug=True)
+2026-05-27 16:30:58 [INFO] api.chat_controller: Using existing session: efd82b78-d061-4a9d-a202-1d6d2b342248
+2026-05-27 16:30:58 [INFO] core.conversation_manager: Created new conversation: efd82b78-d061-4a9d-a202-1d6d2b342248
+2026-05-27 16:30:58 [INFO] api.chat_controller: Chat request: session=efd82b78-d061-4a9d-a202-1d6d2b342248, message_len=8
+2026-05-27 16:30:58 [INFO] core.agent_executor: === Agent Round 1/5 ===
+2026-05-27 16:31:00 [INFO] llm.llm_api: LLM chat_completion_request success: model=qwen-plus
+2026-05-27 16:31:00 [INFO] core.agent_executor: Tool calls: ['select_tool']
+2026-05-27 16:31:00 [INFO] core.agent_executor: Executing tool: select_tool
+2026-05-27 16:31:00 [INFO] tools.tool_registry: Executing tool: select_tool with args: {'question': '杨过选了哪些课程'}
+2026-05-27 16:31:07 [INFO] llm.llm_api: LLM get_answer success: model=qwen-plus
+2026-05-27 16:31:07 [INFO] tools.tool_registry: Tool select_tool executed successfully
+2026-05-27 16:31:07 [INFO] core.agent_executor: Tool result: {'success': True, 'result': '[\n  {\n    "task_name": "杨过选了哪些课程",\n    "success": true,\n    "sql": "SELECT\\n                tb_course.cou_id,\\n    tb_course.cou_credit\\n\\n            FROM tb_stud...
+2026-05-27 16:31:07 [INFO] core.agent_executor: === Agent Round 2/5 ===
+2026-05-27 16:31:10 [INFO] llm.llm_api: LLM chat_completion_request success: model=qwen-plus
+2026-05-27 16:31:10 [INFO] core.agent_executor: Agent completed without tool calls. Answer: 杨过选了以下课程（课程编号及学分）：
+
+- 课程编号 1111，3 学分  
+- 课程编号 2222，2 学分  
+- 课程编号 3333，4 学分  
+- 课程编号 4444，2 学分  
+- 课程...
+2026-05-27 16:31:10 [INFO] api.chat_controller: Chat response: session=efd82b78-d061-4a9d-a202-1d6d2b342248, answer_len=112
+2026-05-27 16:31:38 [INFO] api.chat_controller: Using existing session: efd82b78-d061-4a9d-a202-1d6d2b342248
+2026-05-27 16:31:38 [INFO] api.chat_controller: Chat request: session=efd82b78-d061-4a9d-a202-1d6d2b342248, message_len=7
+2026-05-27 16:31:38 [INFO] core.agent_executor: === Agent Round 1/5 ===
+2026-05-27 16:31:40 [INFO] llm.llm_api: LLM chat_completion_request success: model=qwen-plus
+2026-05-27 16:31:40 [INFO] core.agent_executor: Tool calls: ['select_tool']
+2026-05-27 16:31:40 [INFO] core.agent_executor: Executing tool: select_tool
+2026-05-27 16:31:40 [INFO] tools.tool_registry: Executing tool: select_tool with args: {'question': '查询课程编号为1111、2222、3333、4444、6666的课程名称'}
+2026-05-27 16:31:45 [INFO] llm.llm_api: LLM get_answer success: model=qwen-plus
+2026-05-27 16:31:45 [INFO] tools.tool_registry: Tool select_tool executed successfully
+2026-05-27 16:31:45 [INFO] core.agent_executor: Tool result: {'success': True, 'result': '[\n  {\n    "task_name": "查询指定课程编号的课程名称",\n    "success": true,\n    "sql": "SELECT\\n                tb_course.cou_name\\n\\n            FROM tb_course\\n\\n            \...
+2026-05-27 16:31:45 [INFO] core.agent_executor: === Agent Round 2/5 ===
+2026-05-27 16:31:47 [INFO] llm.llm_api: LLM chat_completion_request success: model=qwen-plus
+2026-05-27 16:31:47 [INFO] core.agent_executor: Agent completed without tool calls. Answer: 杨过选的课程名称如下：
+
+- Python程序设计（课程编号 1111）  
+- Web前端开发（课程编号 2222）  
+- 操作系统（课程编号 3333）  
+- 计算机网络（课程编号 4444）...
+2026-05-27 16:31:47 [INFO] api.chat_controller: Chat response: session=efd82b78-d061-4a9d-a202-1d6d2b342248, answer_len=123
+2026-05-27 16:41:11 [INFO] api.chat_controller: Using existing session: efd82b78-d061-4a9d-a202-1d6d2b342248
+2026-05-27 16:41:11 [INFO] api.chat_controller: Chat request: session=efd82b78-d061-4a9d-a202-1d6d2b342248, message_len=22
+2026-05-27 16:41:11 [INFO] core.agent_executor: === Agent Round 1/5 ===
+2026-05-27 16:41:12 [INFO] llm.llm_api: LLM chat_completion_request success: model=qwen-plus
+2026-05-27 16:41:12 [INFO] core.agent_executor: Tool calls: ['select_tool']
+2026-05-27 16:41:12 [INFO] core.agent_executor: Executing tool: select_tool
+2026-05-27 16:41:12 [INFO] tools.tool_registry: Executing tool: select_tool with args: {'question': '查询课程编号1111、2222、3333、4444、6666对应的授课教师姓名及职称'}
+2026-05-27 16:41:18 [INFO] llm.llm_api: LLM get_answer success: model=qwen-plus
+2026-05-27 16:41:18 [INFO] tools.tool_registry: Tool select_tool executed successfully
+2026-05-27 16:41:18 [INFO] core.agent_executor: Tool result: {'success': True, 'result': '[\n  {\n    "task_name": "查询指定课程编号的授课教师姓名及职称",\n    "success": true,\n    "sql": "SELECT\\n                tb_teacher.tea_name,\\n    tb_teacher.tea_title\\n\\n           ...
+2026-05-27 16:41:18 [INFO] core.agent_executor: === Agent Round 2/5 ===
+2026-05-27 16:41:21 [INFO] llm.llm_api: LLM chat_completion_request success: model=qwen-plus
+2026-05-27 16:41:21 [INFO] core.agent_executor: Agent completed without tool calls. Answer: 杨过所选课程的授课教师及职称如下：
+
+- **Python程序设计**（1111）：张三丰，教授  
+- **Web前端开发**（2222）：张三丰，教授  
+- **操作系统**（3333）：张三丰...
+2026-05-27 16:41:21 [INFO] api.chat_controller: Chat response: session=efd82b78-d061-4a9d-a202-1d6d2b342248, answer_len=160
+2026-05-27 16:41:46 [INFO] api.chat_controller: Using existing session: efd82b78-d061-4a9d-a202-1d6d2b342248
+2026-05-27 16:41:46 [INFO] api.chat_controller: Chat request: session=efd82b78-d061-4a9d-a202-1d6d2b342248, message_len=15
+2026-05-27 16:41:46 [INFO] core.agent_executor: === Agent Round 1/5 ===
+2026-05-27 16:41:47 [INFO] llm.llm_api: LLM chat_completion_request success: model=qwen-plus
+2026-05-27 16:41:47 [INFO] core.agent_executor: Tool calls: ['select_tool']
+2026-05-27 16:41:47 [INFO] core.agent_executor: Executing tool: select_tool
+2026-05-27 16:41:47 [INFO] tools.tool_registry: Executing tool: select_tool with args: {'question': '统计每门课程的选课人数，找出选课人数最多的课程及其授课教师和职称'}
+2026-05-27 16:41:59 [INFO] llm.llm_api: LLM get_answer success: model=qwen-plus
+2026-05-27 16:41:59 [INFO] tools.tool_registry: Tool select_tool executed successfully
+2026-05-27 16:41:59 [INFO] core.agent_executor: Tool result: {'success': True, 'result': '[\n  {\n    "task_name": "统计每门课程的选课人数",\n    "success": true,\n    "sql": "SELECT\\n                tb_course.cou_id,\\n    COUNT(DISTINCT tb_record.stu_id) AS enrollment_...
+2026-05-27 16:41:59 [INFO] core.agent_executor: === Agent Round 2/5 ===
+2026-05-27 16:42:01 [INFO] llm.llm_api: LLM chat_completion_request success: model=qwen-plus
+2026-05-27 16:42:01 [INFO] core.agent_executor: Agent completed without tool calls. Answer: 最受学生欢迎的课程是：
+
+- **课程编号 1111：Python程序设计**  
+- **授课教师：张三丰（教授）**  
+- **选课人数：6人**（当前数据库中最多）
+
+其他课程选课人数均少于该...
+2026-05-27 16:42:01 [INFO] api.chat_controller: Chat response: session=efd82b78-d061-4a9d-a202-1d6d2b342248, answer_len=111
