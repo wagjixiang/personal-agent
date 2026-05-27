@@ -11,8 +11,6 @@
 7. 中文分词
 8. 低 Token Schema Prompt
 
-依赖：
-pip install jieba
 """
 
 from typing import (
@@ -28,6 +26,8 @@ import re
 import jieba
 from difflib import SequenceMatcher
 from collections import defaultdict
+from typing import List
+from difflib import SequenceMatcher
 
 from utils.db_table import (
     DATABASE_SCHEMA,
@@ -110,48 +110,117 @@ class ChineseTokenizer:
 
 class SimilarityEngine:
     """
-    关键词相似度引擎
+    轻量级关键词相似度引擎
+
+    特点：
+    1. 精确匹配优先
+    2. 限制模糊匹配
+    3. 去重
+    4. 长度归一化
+    5. 更快
     """
 
-    @staticmethod
+    # ==========================================
+    # Stop Words
+    # ==========================================
+
+    STOP_WORDS = {
+        "id",
+        "name",
+        "time",
+        "create",
+        "update",
+        "data",
+        "info"
+    }
+
+    # ==========================================
+    # Similarity
+    # ==========================================
+
+    @classmethod
     def calculate_similarity(
+        cls,
         query_tokens: List[str],
         doc_tokens: List[str],
         weight: float = 1.0
     ) -> float:
 
         if not query_tokens or not doc_tokens:
-            return 0
+            return 0.0
 
-        exact_match_score = 0
-        fuzzy_match_score = 0
+        # ======================================
+        # 去重 + 小写
+        # ======================================
 
+        query_set = {
+            t.lower()
+            for t in query_tokens
+            if t.lower() not in cls.STOP_WORDS
+        }
+
+        doc_set = {
+            t.lower()
+            for t in doc_tokens
+            if t.lower() not in cls.STOP_WORDS
+        }
+
+        if not query_set or not doc_set:
+            return 0.0
+
+        # ======================================
         # 精确匹配
-        for q in query_tokens:
+        # ======================================
 
-            exact_match_score += doc_tokens.count(q)
+        exact_matches = query_set & doc_set
 
+        exact_score = len(exact_matches) * 3.0
+
+        # ======================================
+        # Early Stop
+        # ======================================
+
+        if len(exact_matches) == len(query_set):
+
+            return exact_score * weight
+
+        # ======================================
         # 模糊匹配
-        for q in query_tokens:
+        # ======================================
 
-            for d in doc_tokens:
+        fuzzy_score = 0.0
 
-                ratio = SequenceMatcher(
-                    None,
-                    q,
-                    d
-                ).ratio()
+        unmatched_query = query_set - exact_matches
+        unmatched_doc = doc_set - exact_matches
 
-                if ratio >= 0.75:
-                    fuzzy_match_score += ratio
+        for q in unmatched_query:
 
-        # 综合评分
-        final_score = (
-            exact_match_score * 2 +
-            fuzzy_match_score
-        )
+            best_ratio = 0.0
 
-        return final_score * weight
+            for d in unmatched_doc:
+
+                # 长度差太大直接跳过
+                if abs(len(q) - len(d)) > 5:
+                    continue
+
+                ratio = SequenceMatcher(None, q, d).ratio()
+
+                if ratio > best_ratio:
+                    best_ratio = ratio
+
+            # 只保留最佳匹配
+            if best_ratio >= 0.8:
+                fuzzy_score += best_ratio
+
+        # ======================================
+        # Length Normalization
+        # ======================================
+
+        normalization = (len(query_set) + len(doc_set)) ** 0.5
+
+        final_score = (exact_score + fuzzy_score) / normalization
+
+        return round(final_score * weight, 4)
 
 
 # =========================================================
@@ -230,6 +299,7 @@ class SchemaRetriever:
             if score > 0:
                 scores.append((table_name, score))
 
+        # 表按照得分排序
         scores.sort(
             key=lambda x: x[1],
             reverse=True
@@ -567,9 +637,7 @@ class SchemaRegistry:
 
         return self.prompt_builder.build_prompt(
             tables=retrieval_result["tables"],
-            selected_columns=retrieval_result[
-                "selected_columns"
-            ]
+            selected_columns=retrieval_result["selected_columns"]
         )
 
 

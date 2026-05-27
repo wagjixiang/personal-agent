@@ -79,9 +79,7 @@ class QueryAgent:
 
         try:
 
-            schema_prompt = get_schema_prompt(
-                question
-            )
+            schema_prompt = get_schema_prompt(question)
 
             logger.info(
                 f"Schema retrieval success: {question[:50]}"
@@ -158,13 +156,9 @@ class QueryAgent:
         执行 Query Agent
         """
 
-        logger.info(
-            f"QueryAgent started: {question}"
-        )
+        logger.info(f"QueryAgent started: {question}")
 
-        tasks = cls.build_query_tasks(
-            question
-        )
+        tasks = cls.build_query_tasks(question)
 
         results = []
 
@@ -172,9 +166,7 @@ class QueryAgent:
 
             try:
 
-                logger.info(
-                    f"Executing task: {task.name}"
-                )
+                logger.info(f"Executing task: {task.name}")
 
                 # ==================================
                 # Query Plan
@@ -194,18 +186,13 @@ class QueryAgent:
 
                 sql, params = build_sql(plan)
 
-                logger.info(
-                    f"Generated SQL: {sql}"
-                )
+                logger.info(f"Generated SQL: {sql}")
 
                 # ==================================
                 # Execute SQL
                 # ==================================
 
-                data = DBExecutor.execute(
-                    sql,
-                    params
-                )
+                data = DBExecutor.execute(sql, params)
 
                 # ==================================
                 # Result
@@ -228,9 +215,7 @@ class QueryAgent:
 
             except Exception as e:
 
-                logger.exception(
-                    f"Task failed: {task.name}"
-                )
+                logger.exception(f"Task failed: {task.name}")
 
                 results.append({
 
