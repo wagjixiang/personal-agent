@@ -1,0 +1,36 @@
+2026-05-27 09:16:23 [INFO] core.conversation_manager: ConversationManager initialized with max_history=20
+2026-05-27 09:16:23 [INFO] core.agent_executor: AgentExecutor initialized with max_tool_rounds=5
+2026-05-27 09:16:25 [ERROR] __main__: Failed to start application: 数据库连接失败: (pymysql.err.OperationalError) (2003, "Can't connect to MySQL server on '127.0.0.1' ([WinError 10061] 由于目标计算机积极拒绝，无法连接。)")
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+Redis 连接失败: No module named 'redis'
+Traceback (most recent call last):
+  File "d:\Mu Yuan\study doc\owner\personal-agent.worktrees\agents-code-optimization-and-cleanup\app.py", line 66, in <module>
+    settings.validate()
+  File "d:\Mu Yuan\study doc\owner\personal-agent.worktrees\agents-code-optimization-and-cleanup\config\settings.py", line 166, in validate
+    raise ValueError("\n".join(errors))
+ValueError: 数据库连接失败: (pymysql.err.OperationalError) (2003, "Can't connect to MySQL server on '127.0.0.1' ([WinError 10061] 由于目标计算机积极拒绝，无法连接。)")
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+Redis 连接失败: No module named 'redis'
+2026-05-27 09:18:13 [INFO] core.conversation_manager: ConversationManager initialized with max_history=20
+2026-05-27 09:18:13 [INFO] core.agent_executor: AgentExecutor initialized with max_tool_rounds=5
+2026-05-27 09:18:33 [ERROR] __main__: Failed to start application: 数据库连接失败: (pymysql.err.OperationalError) (2003, "Can't connect to MySQL server on '127.0.0.1' ([WinError 10061] 由于目标计算机积极拒绝，无法连接。)")
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+Redis 连接失败: Error 10061 connecting to 127.0.0.1:6379. 由于目标计算机积极拒绝，无法连接。.
+Traceback (most recent call last):
+  File "d:\Mu Yuan\study doc\owner\personal-agent.worktrees\agents-code-optimization-and-cleanup\app.py", line 66, in <module>
+    settings.validate()
+  File "d:\Mu Yuan\study doc\owner\personal-agent.worktrees\agents-code-optimization-and-cleanup\config\settings.py", line 166, in validate
+    raise ValueError("\n".join(errors))
+ValueError: 数据库连接失败: (pymysql.err.OperationalError) (2003, "Can't connect to MySQL server on '127.0.0.1' ([WinError 10061] 由于目标计算机积极拒绝，无法连接。)")
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+Redis 连接失败: Error 10061 connecting to 127.0.0.1:6379. 由于目标计算机积极拒绝，无法连接。.
+2026-05-27 09:32:09 [INFO] core.conversation_manager: ConversationManager initialized with max_history=20
+2026-05-27 09:32:09 [INFO] core.agent_executor: AgentExecutor initialized with max_tool_rounds=5
+2026-05-27 09:32:09 [INFO] __main__: Configuration validated successfully
+2026-05-27 09:32:09 [INFO] __main__: Flask app created successfully
+2026-05-27 09:32:09 [INFO] __main__: Starting server at 0.0.0.0:5000 (debug=True)
+2026-05-27 09:32:12 [INFO] core.conversation_manager: ConversationManager initialized with max_history=20
+2026-05-27 09:32:12 [INFO] core.agent_executor: AgentExecutor initialized with max_tool_rounds=5
+2026-05-27 09:32:12 [INFO] __main__: Configuration validated successfully
+2026-05-27 09:32:12 [INFO] __main__: Flask app created successfully
+2026-05-27 09:32:12 [INFO] __main__: Starting server at 0.0.0.0:5000 (debug=True)

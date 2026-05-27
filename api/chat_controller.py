@@ -4,11 +4,11 @@ from typing import Dict, Any
 from flask import Blueprint, request, jsonify
 
 from logger import get_logger
-from conversation_manager import ConversationManager
-from agent_executor import AgentExecutor
-from constants import END_CONVERSATION_KEYWORDS, DEFAULT_FINAL_ANSWER
-from settings import settings
-from json_utils import safe_json_dumps
+from core.conversation_manager import ConversationManager
+from core.agent_executor import AgentExecutor
+from config.constants import END_CONVERSATION_KEYWORDS, DEFAULT_FINAL_ANSWER
+from config.settings import settings
+from utils.json_utils import safe_json_dumps
 
 logger = get_logger(__name__)
 

@@ -3,7 +3,7 @@ import json
 from datetime import date, datetime
 from pydantic import BaseModel
 
-from tool_registry import tool
+from tools.tool_registry import tool
 from agents.query_agent import QueryAgent
 
 

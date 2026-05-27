@@ -7,7 +7,7 @@ Description:
 '''
 import json
 
-from llm_api import get_answer
+from llm.llm_api import get_answer
 
 from models.query_plan import QueryTaskList
 
@@ -27,7 +27,7 @@ from sql.validator import validate_plan
 from sql.builder import build_sql
 from sql.executor import DBExecutor
 
-from json_utils import safe_json_loads
+from utils.json_utils import safe_json_loads
 
 
 class QueryAgent:

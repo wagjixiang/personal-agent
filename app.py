@@ -6,8 +6,8 @@ Flask 应用配置和初始化
 from flask import Flask, render_template
 
 from logger import get_logger
-from settings import settings
-from chat_controller import chat_bp
+from config.settings import settings
+from api.chat_controller import chat_bp
 
 logger = get_logger(__name__)
 

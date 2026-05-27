@@ -1,0 +1,84 @@
+# Prometheus 配置文件
+# 用于监控 personal-agent 应用
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'personal-agent'
+    environment: 'production'
+
+# 告警规则文件
+rule_files:
+  - '/etc/prometheus/rules/*.yml'
+
+scrape_configs:
+  # ============================================================
+  # 应用监控
+  # ============================================================
+  - job_name: 'personal-agent'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+    static_configs:
+      - targets: ['localhost:5000']
+    metrics_path: '/metrics'
+    relabel_configs:
+      - source_labels: [__scheme__]
+        target_label: __scheme__
+        replacement: 'http'
+
+  # ============================================================
+  # MySQL 监控（需要 mysqld-exporter）
+  # ============================================================
+  - job_name: 'mysql'
+    scrape_interval: 30s
+    static_configs:
+      - targets: ['localhost:9104']
+
+  # ============================================================
+  # Redis 监控（需要 redis-exporter）
+  # ============================================================
+  - job_name: 'redis'
+    scrape_interval: 30s
+    static_configs:
+      - targets: ['localhost:9121']
+
+  # ============================================================
+  # Prometheus 自身监控
+  # ============================================================
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+# ============================================================
+# 告警配置
+# ============================================================
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+# ============================================================
+# 常见指标说明
+# ============================================================
+#
+# 应用层指标：
+#   - queries_total{table, status}       # 查询总数
+#   - query_duration_seconds{table}      # 查询耗时分布
+#   - cache_hit_total{type}              # 缓存命中总数
+#   - active_db_connections              # 活跃DB连接数
+#
+# 系统指标：
+#   - node_memory_MemAvailable_bytes      # 可用内存
+#   - node_disk_io_time_seconds_total     # 磁盘IO时间
+#   - process_resident_memory_bytes       # 进程内存使用
+#
+# 数据库指标（MySQL）：
+#   - mysql_global_variables_innodb_buffer_pool_size
+#   - mysql_global_status_connections_total
+#   - mysql_global_status_questions_total
+#
+# Redis指标：
+#   - redis_connected_clients             # 连接数
+#   - redis_used_memory_bytes             # 内存使用
+#   - redis_commands_processed_total      # 命令处理总数

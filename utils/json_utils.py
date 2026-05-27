@@ -2,7 +2,7 @@
 import json
 from typing import Any, Dict
 
-from llm_api import get_answer
+from llm.llm_api import get_answer
 
 
 def safe_json_loads(raw: str) -> Dict[str, Any]:

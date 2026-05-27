@@ -1,10 +1,20 @@
-"""对话管理模块 - 管理会话和聊天历史"""
+"""对话管理模块 - 管理会话和聊天历史
+
+支持多种后端存储：
+- MemorySessionStore：内存存储（开发用）
+- RedisSessionStore：Redis 存储（生产用，分布式支持）
+- DatabaseSessionStore：数据库存储（持久化）
+"""
+
 import uuid
+import json
+import logging
 from typing import Dict, List, Any, Optional
 from abc import ABC, abstractmethod
+from datetime import datetime, timedelta
 
 from logger import get_logger
-from constants import SYSTEM_PROMPT
+from config.constants import SYSTEM_PROMPT
 
 logger = get_logger(__name__)
 
@@ -35,27 +45,113 @@ class SessionStore(ABC):
     def exists(self, session_id: str) -> bool:
         """检查会话是否存在"""
         pass
+    
+    @abstractmethod
+    def get_stats(self) -> Dict[str, Any]:
+        """获取存储统计信息"""
+        pass
 
 
 class MemorySessionStore(SessionStore):
     """基于内存的会话存储（开发用，生产环境建议使用 Redis/数据库）"""
     
     def __init__(self):
-        self._store: Dict[str, List[Dict[str, Any]]] = {}
+        self._store: Dict[str, tuple] = {}  # {session_id: (history, expires_at)}
+        self.total_sessions = 0
     
     def get(self, session_id: str) -> Optional[List[Dict[str, Any]]]:
-        return self._store.get(session_id)
+        if session_id not in self._store:
+            return None
+        
+        history, expires_at = self._store[session_id]
+        
+        if datetime.now() > expires_at:
+            del self._store[session_id]
+            return None
+        
+        return history
     
     def save(self, session_id: str, history: List[Dict[str, Any]]) -> None:
-        self._store[session_id] = history
+        expires_at = datetime.now() + timedelta(hours=24)
+        self._store[session_id] = (history, expires_at)
+        self.total_sessions = len(self._store)
+        logger.debug(f"Saved session: {session_id}")
     
     def delete(self, session_id: str) -> None:
         if session_id in self._store:
             del self._store[session_id]
+            self.total_sessions = len(self._store)
             logger.info(f"Deleted session: {session_id}")
     
     def exists(self, session_id: str) -> bool:
         return session_id in self._store
+    
+    def get_stats(self) -> Dict[str, Any]:
+        return {
+            'type': 'memory',
+            'total_sessions': self.total_sessions,
+            'size_bytes': sum(len(json.dumps(h)) for h, _ in self._store.values()),
+        }
+
+
+class RedisSessionStore(SessionStore):
+    """基于 Redis 的会话存储（生产环境推荐）"""
+    
+    def __init__(self, redis_client, ttl_seconds: int = 86400):
+        self.client = redis_client
+        self.ttl_seconds = ttl_seconds
+        self.key_prefix = "session:"
+        logger.info("RedisSessionStore 初始化成功")
+    
+    def get(self, session_id: str) -> Optional[List[Dict[str, Any]]]:
+        try:
+            key = f"{self.key_prefix}{session_id}"
+            value = self.client.get(key)
+            
+            if value:
+                return json.loads(value)
+            return None
+        except Exception as e:
+            logger.error(f"Redis GET 错误: {e}")
+            return None
+    
+    def save(self, session_id: str, history: List[Dict[str, Any]]) -> None:
+        try:
+            key = f"{self.key_prefix}{session_id}"
+            value = json.dumps(history, default=str)
+            self.client.setex(key, self.ttl_seconds, value)
+            logger.debug(f"Saved session to Redis: {session_id}")
+        except Exception as e:
+            logger.error(f"Redis SET 错误: {e}")
+    
+    def delete(self, session_id: str) -> None:
+        try:
+            key = f"{self.key_prefix}{session_id}"
+            self.client.delete(key)
+            logger.info(f"Deleted session from Redis: {session_id}")
+        except Exception as e:
+            logger.error(f"Redis DELETE 错误: {e}")
+    
+    def exists(self, session_id: str) -> bool:
+        try:
+            key = f"{self.key_prefix}{session_id}"
+            return bool(self.client.exists(key))
+        except Exception as e:
+            logger.error(f"Redis EXISTS 错误: {e}")
+            return False
+    
+    def get_stats(self) -> Dict[str, Any]:
+        try:
+            info = self.client.info()
+            return {
+                'type': 'redis',
+                'used_memory': info.get('used_memory_human', 'N/A'),
+                'connected_clients': info.get('connected_clients', 0),
+                'total_commands': info.get('total_commands_processed', 0),
+            }
+        except Exception as e:
+            logger.error(f"Redis INFO 错误: {e}")
+            return {}
 
 
 # ============================================================
@@ -223,6 +319,10 @@ class ConversationManager:
             session_id: 会话 ID
         """
         self.store.delete(session_id)
+    
+    def get_store_stats(self) -> Dict[str, Any]:
+        """获取存储后端统计信息"""
+        return self.store.get_stats()
     
     @staticmethod
     def generate_session_id() -> str:

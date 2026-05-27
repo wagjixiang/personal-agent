@@ -10,10 +10,10 @@ import json
 from typing import List, Dict, Any, Tuple
 
 from logger import get_logger
-from json_utils import safe_json_loads, safe_json_dumps
-from llm_api import chat_completion_request
-from tool_registry import execute_tool, generate_openai_tools
-from settings import settings
+from utils.json_utils import safe_json_loads, safe_json_dumps
+from llm.llm_api import chat_completion_request
+from tools.tool_registry import execute_tool, generate_openai_tools
+from config.settings import settings
 
 logger = get_logger(__name__)
 
